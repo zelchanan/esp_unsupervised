@@ -29,9 +29,13 @@ def create_block_matrix(batch_size: int, blocks_num: int, block_size: int, epsil
 
 
 def find_colissions(collision_matrix: np.ndarray, paths_dist: np.ndarray) -> Set[Tuple[int, int]]:
+    existing_blocks = np.where((paths_dist > 0.01).any(axis=1))[0]
+
     rs, cs = np.where(collision_matrix > 0)
     coordinates = list(zip(rs, cs))
-    ps = np.where(paths_dist.flatten() > 0.5)[0]
+    ps = np.arange(paths_dist.shape[0])*paths_dist.shape[1]+np.argmax(paths_dist,axis=1)
+    mask =np.isin(ps//10,existing_blocks)
+    ps =ps[mask]
     pairs = list(itertools.combinations(ps, 2))
     return set(pairs) & set(coordinates)
 
@@ -40,16 +44,4 @@ def count_collisions(collision_matrix: np.ndarray, paths_dist: np.ndarray) -> in
     s = (paths_dist.flatten() > 0.5).astype(float)
     return int(s @ collision_matrix @ s)
 
-
-def greedy_repair(collision_matrix: np.ndarray, paths_dist: np.ndarray) -> np.ndarray:
-    collisions = find_colissions(collision_matrix, paths_dist)
-    blocks_num, block_size = collision_matrix.shape
-    rs = []
-    cs = []
-    for c in collisions:
-        rs.append(c // block_size)
-        cs.append(c % block_size)
-    paths_dist[list(rs), list(cs)] = 0
-    for r in rs:
-        collision_row = collision_matrix[r]
 
