@@ -51,7 +51,11 @@ def loss_fn(block: torch.Tensor, weights: torch.Tensor, final_dim: int) -> torch
     weights = torch.reshape(weights, (-1, 1, final_dim))
     # logging.info(f"nan: {torch.any(torch.isnan(weights))}")
     reg_loss = 0.01 * torch.mean(torch.sqrt(weights))  # anyway it cannot be smooshed
-    collision_loss = torch.mean(torch.mul(torch.matmul(weights, block.squeeze()), weights))
+    #collision_loss = torch.mul((torch.matmul(weights, block.squeeze()), weights))
+    collision_loss = torch.mul(torch.matmul(weights, block.squeeze()), weights)
+    #print(collision_loss.shape)
+    collision_loss = torch.sum(torch.mul(torch.matmul(weights, block.squeeze()), weights))
+
     # logging.info(f"reg_loss: {reg_loss.item()}, collision_loss: {collision_loss.item()}")
     return collision_loss
 
@@ -81,9 +85,9 @@ if __name__ == "__main__":
     blocks_num = 30
     block_size = 10
     batch_size = 1
-    epsilon = 0.1
+    epsilon = 0.15
     seed = 1
 
-    model = ToyModel(blocks_num=blocks_num, block_size=block_size, layers_num=3).float().cuda()
+    model = ToyModel(blocks_num=blocks_num, block_size=block_size, layers_num=1).float().cuda()
     summary(model, input_size=(4, 1, block_size * blocks_num, block_size * blocks_num))
     train(model=model, batch_size=batch_size, blocks_num=blocks_num, block_size=block_size, epsilon=epsilon, seed=seed)
