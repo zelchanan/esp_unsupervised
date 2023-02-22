@@ -170,32 +170,34 @@ def smart_greedy(collision_matrix: np.ndarray, selects: np.ndarray, row: int):
     iteration = iteration + 1
 
     height, width = selects.shape
-    if (selects.sum() + height - row <= height - 1) or (row >= height-1):
-        scanned += 11**(height-row-1)
-        logging.info(f"iteration: {iteration}, scanned: {scanned}, row{row}, no recursion: {get_pairs_of_inds(selects)}")
-        return selects
+    if ((selects.sum() + height - row) <= height - 1) or (max_sol_size>=height):
+        scanned += (width+1) ** -(row + 1)
+        logging.info(
+            f"iteration: {iteration}, scanned: {scanned}, row{row}, no recursion: {get_pairs_of_inds(selects)}")
+        return max_selects
     else:
         logging.info(f"row: {row}, inside recursion")
 
-    sols = []
+    #sols = []
     logging.info(
-        f"iteration: {iteration}, row: {row}, col: {-1}, max_sol_size: {max_sol_size},selects: {get_pairs_of_inds(selects)}")
-    sol = smart_greedy(collision_matrix, selects, row + 1)
-    sols.append(sol)
+        f"iteration: {iteration}, row: {row}, col: {-1}, max_sol_size: {(max_sol_size,max_selects.sum())},selects: {get_pairs_of_inds(selects)}")
+    sol = smart_greedy(collision_matrix, selects.copy(), row + 1)
+    #sols.append(sol)
     for col in range(width):
         tmp_selects = selects.copy()
 
-        if (np.dot(collision_matrix[row * width + col], selects.flatten()) == 0) and row < height - 1:
+        if (np.dot(collision_matrix[row * width + col], selects.flatten()) == 0):
             tmp_selects[row, col] = 1
+
             max_sol_size = max(max_sol_size, tmp_selects.sum())
+            if tmp_selects.sum() == max_sol_size:
+                max_selects = tmp_selects
             logging.info(
                 f"iteration: {iteration}, row: {row}, col: {col}, max_sol_size: {max_sol_size}, selects: {get_pairs_of_inds(tmp_selects)}")
-            sols.append(smart_greedy(collision_matrix, tmp_selects, row + 1))
-    for sol in sols:
-        if (sol.sum() == max_sol_size):
-            max_selects = sol
-            return max_selects
-    return selects
+            #if row < height - 1:
+            smart_greedy(collision_matrix, tmp_selects, row + 1)
+
+    return max_selects
 
     # new_selects = selects.copy()
     # if np.dot(collision_matrix[row * width + col], selects.flatten()) == 0:
@@ -281,7 +283,9 @@ if __name__ == "__main__":
     BLOCK_SIZE = 10
     block = examples.create_block_matrix(batch_size=1, blocks_num=BLOCKS_NUM, block_size=BLOCK_SIZE, epsilon=0.1,
                                          seed=1).squeeze()
+    scanned = 0.0
     selects = np.zeros((BLOCKS_NUM, BLOCK_SIZE))
+    max_selects = selects.copy()
     iteration = 0
     sol = smart_greedy(block, selects, 0)
     logging.info(max_selects)
