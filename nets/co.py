@@ -15,6 +15,7 @@ DISTRIBUTION_LOSS_COEFF = 5
 LASSO_LOSS_COEFF = 1
 HIGH_LOSS_COEFF = 1
 NEGATIVE_LOSS_COEFF = 1
+max_sol_size = 0
 
 
 def convexify(orig_block: np.ndarray) -> np.ndarray:
@@ -28,13 +29,14 @@ def convexify(orig_block: np.ndarray) -> np.ndarray:
     con[np.eye(len(con)).astype(bool)] = max_diag_element
     return con
 
-def sqrt_block(block:np.ndarray)->np.ndarray:
+
+def sqrt_block(block: np.ndarray) -> np.ndarray:
     vals, eigs = np.linalg.eig(block)
     eigs = np.real(eigs)
-    vals = np.real(vals)**0.5
+    vals = np.real(vals) ** 0.5
     d = np.diag(vals)
 
-    return  np.real(eigs @ d @ eigs.T)
+    return np.real(eigs @ d @ eigs.T)
 
 
 def get_selects(r_weights: np.ndarray, threshold: float = 0.5) -> np.ndarray:
@@ -44,7 +46,7 @@ def get_selects(r_weights: np.ndarray, threshold: float = 0.5) -> np.ndarray:
     block_inds = range(r_weights.shape[0])
     selects[block_inds, maxes] = 1
     selects[zeros_mask, :] = 0
-    #logging.info(f"zeros: {zeros_mask.sum()}, sum: {selects.sum()}")
+    # logging.info(f"zeros: {zeros_mask.sum()}, sum: {selects.sum()}")
 
     return selects
 
@@ -74,6 +76,7 @@ def optimize(orig_block: np.ndarray, approx_block: np.ndarray, blocks_num: int, 
         weights = torch.Tensor(init_vals).requires_grad_()
     else:
         weights = torch.zeros(blocks_num * block_size, requires_grad=True)
+
     # logging.info(weights)
     optimizer = torch.optim.Adam([weights], lr=1e-2)
     res_dict = {}
@@ -95,7 +98,7 @@ def optimize(orig_block: np.ndarray, approx_block: np.ndarray, blocks_num: int, 
         # distribution_loss = DISTRIBUTION_LOSS_COEFF*torch.pow(dist_weights.sum(axis=1) - 1, 2).sum()
         distribution_loss = DISTRIBUTION_LOSS_COEFF * torch.pow(dist_weights.sum(axis=1) - 1, 2).sum()
         lasso_loss = LASSO_LOSS_COEFF * (torch.sqrt(torch.abs(dist_weights) + 1e-5)).sum()
-        abs_weights = torch.abs(dist_weights)+1e-5
+        abs_weights = torch.abs(dist_weights) + 1e-5
         lasso_loss = LASSO_LOSS_COEFF * torch.sum(torch.abs(abs_weights * torch.log(1 / abs_weights)))
         collision_loss = torch.matmul(torch.matmul(weights, approx_block), weights)
         # logging.info(collision_loss)
@@ -114,7 +117,7 @@ def optimize(orig_block: np.ndarray, approx_block: np.ndarray, blocks_num: int, 
         scores.append([i, real_val, approx_real_val, sum_, loss.item(), negative_loss.item(), high_loss.item(),
                        distribution_loss.item(), collision_loss.item(),
                        lasso_loss.item()])
-        if (i % 200 == 0) or (i<100):
+        if (i % 200 == 0) or (i < 100):
             logging.info(
                 f"ind:  {i}, real_val: {real_val}, sum: {sum_}, loss: {loss}, negative_loss: {negative_loss}, dist_loss: {distribution_loss}, "
                 f"colission loss: {collision_loss}, lasso loss: {lasso_loss.item()}, real_val: {real_val}")
@@ -154,18 +157,70 @@ def plot_dist(counter, dist_weights, loss, old_loss, res_dir):
     return old_loss
 
 
+def get_pairs_of_inds(selects: np.ndarray) -> list:
+    rows, cols = np.where(selects)
+    return list(zip(rows, cols))
+
+
+def smart_greedy(collision_matrix: np.ndarray, selects: np.ndarray, row: int):
+    global max_sol_size
+    global max_selects
+    global iteration
+    global scanned
+    iteration = iteration + 1
+
+    height, width = selects.shape
+    if (selects.sum() + height - row <= height - 1) or (row >= height-1):
+        scanned += 11**(height-row-1)
+        logging.info(f"iteration: {iteration}, scanned: {scanned}, row{row}, no recursion: {get_pairs_of_inds(selects)}")
+        return selects
+    else:
+        logging.info(f"row: {row}, inside recursion")
+
+    sols = []
+    logging.info(
+        f"iteration: {iteration}, row: {row}, col: {-1}, max_sol_size: {max_sol_size},selects: {get_pairs_of_inds(selects)}")
+    sol = smart_greedy(collision_matrix, selects, row + 1)
+    sols.append(sol)
+    for col in range(width):
+        tmp_selects = selects.copy()
+
+        if (np.dot(collision_matrix[row * width + col], selects.flatten()) == 0) and row < height - 1:
+            tmp_selects[row, col] = 1
+            max_sol_size = max(max_sol_size, tmp_selects.sum())
+            logging.info(
+                f"iteration: {iteration}, row: {row}, col: {col}, max_sol_size: {max_sol_size}, selects: {get_pairs_of_inds(tmp_selects)}")
+            sols.append(smart_greedy(collision_matrix, tmp_selects, row + 1))
+    for sol in sols:
+        if (sol.sum() == max_sol_size):
+            max_selects = sol
+            return max_selects
+    return selects
+
+    # new_selects = selects.copy()
+    # if np.dot(collision_matrix[row * width + col], selects.flatten()) == 0:
+    #     new_selects[row, col] = 1
+    #     max_collisions += 1
+    # if (row == height - 1) and (col == width - 1):
+    #     return new_selects, new_selects.sum()
+    # elif col < width - 1:
+    #     return smart_greedy(collision_matrix, selects, row, col + 1, max_collisions)
+    # else:
+    #     return smart_greedy(collision_matrix, selects, row + 1, 0, max_collisions)
+
+
 def greedy_repair(collision_matrix: np.ndarray, selects: np.ndarray) -> Tuple:
     blocks_num, block_size = selects.shape
     missing_blocks = np.where((selects == 0).all(axis=1))[0]
     selects_dict = dict([])
     candidates_dict = dict([])
-    for k in range(100):
+    for k in range(10000):
         candidates_list = []
         tmp_selects = selects.copy()
         missing_blocks = np.random.permutation(missing_blocks)
         for ind, m in enumerate(missing_blocks):
-            logging.info(
-                f"k: {k}, ind: {ind}, sum: {tmp_selects.sum()}, val: {tmp_selects.flatten() @ collision_matrix @ tmp_selects.flatten()}")
+            # logging.info(
+            #     f"k: {k}, ind: {ind}, sum: {tmp_selects.sum()}, val: {tmp_selects.flatten() @ collision_matrix @ tmp_selects.flatten()}")
             submatrix = collision_matrix[m * block_size:(m + 1) * block_size, :].astype(bool)
             bool_selects = tmp_selects.flatten().astype(bool)
             # logging.info(f"#: {bool_selects.sum()}")
@@ -199,25 +254,56 @@ def get_losses(approx_block: np.ndarray, weights: np.ndarray) -> Tuple[float]:
     return loss, collision_loss, negative_loss, high_loss, distribution_loss, lasso_loss
 
 
-if __name__ == "__main__":
-    import pickle
+def find_lower_neighbour(collision_matrix: np.ndarray, weights: np.ndarray) -> Tuple[np.ndarray, int]:
+    collision_matrix = collision_matrix.copy()
+    min_val = np.round(np.linalg.eig(collision_matrix)[0].min())
+    if min_val < 0:
+        collision_matrix = collision_matrix - np.eye(len(collision_matrix)) * min_val
 
-    blocks_num = 30
-    block_size = 10
-    batch_size = 16
-    epsilon = 0.15
-    seed = -1
-    orig_block = examples.create_block_matrix(batch_size=1, blocks_num=blocks_num,
-                                              block_size=block_size, epsilon=epsilon,
-                                              seed=1)[0].squeeze()
-    # greedy_sol, greedy_pairs = greedy_repair(orig_block, np.zeros((blocks_num, block_size)))
-    # pickle.dump(orig_block, file = open(f"data/block_{epsilon}.p", mode="wb"))
-    # pickle.dump(greedy_sol, file= open(f"data/greedy_sol_{epsilon}.p", mode="wb"))
-    orig_block = pickle.load(open(f"data/block_{epsilon}.p", mode="rb"))
-    greedy_sol = pickle.load(open(f"data/greedy_sol_{epsilon}.p", mode="rb"))
-    approx_block = convexify(orig_block)
-    print(greedy_sol.sum())
-    res_dict, scores_df, min_loss, min_loss_res = optimize(orig_block=orig_block, approx_block=approx_block,
-                                                           blocks_num=blocks_num, block_size=block_size,
-                                                           init_vals=greedy_sol.flatten())
-    print(scores_df)
+    blocks_num, block_size = weights.shape
+    old_val = weights.flatten() @ collision_matrix @ weights.flatten()
+    for r in range(blocks_num):
+        tmp = weights.copy()
+        tmp[r, :] = 0
+        for c in range(block_size):
+            tmp[r, c] = 1
+            new_val = tmp.flatten() @ collision_matrix @ tmp.flatten()
+            if new_val < old_val:
+                logging.info(f"{(r, c, new_val, old_val)}")
+                return tmp, new_val
+            tmp[r, c] = 0
+    return weights, -1
+
+
+if __name__ == "__main__":
+    set_log()
+    BLOCKS_NUM = 30
+    BLOCK_SIZE = 10
+    block = examples.create_block_matrix(batch_size=1, blocks_num=BLOCKS_NUM, block_size=BLOCK_SIZE, epsilon=0.1,
+                                         seed=1).squeeze()
+    selects = np.zeros((BLOCKS_NUM, BLOCK_SIZE))
+    iteration = 0
+    sol = smart_greedy(block, selects, 0)
+    logging.info(max_selects)
+    logging.info(max_selects.flatten() @ block @ max_selects.flatten())
+    # import pickle
+    #
+    # blocks_num = 30
+    # block_size = 10
+    # batch_size = 16
+    # epsilon = 0.15
+    # seed = -1
+    # orig_block = examples.create_block_matrix(batch_size=1, blocks_num=blocks_num,
+    #                                           block_size=block_size, epsilon=epsilon,
+    #                                           seed=1)[0].squeeze()
+    # # greedy_sol, greedy_pairs = greedy_repair(orig_block, np.zeros((blocks_num, block_size)))
+    # # pickle.dump(orig_block, file = open(f"data/block_{epsilon}.p", mode="wb"))
+    # # pickle.dump(greedy_sol, file= open(f"data/greedy_sol_{epsilon}.p", mode="wb"))
+    # orig_block = pickle.load(open(f"data/block_{epsilon}.p", mode="rb"))
+    # greedy_sol = pickle.load(open(f"data/greedy_sol_{epsilon}.p", mode="rb"))
+    # approx_block = convexify(orig_block)
+    # print(greedy_sol.sum())
+    # res_dict, scores_df, min_loss, min_loss_res = optimize(orig_block=orig_block, approx_block=approx_block,
+    #                                                        blocks_num=blocks_num, block_size=block_size,
+    #                                                        init_vals=greedy_sol.flatten())
+    # print(scores_df)

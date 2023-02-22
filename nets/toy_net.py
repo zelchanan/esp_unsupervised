@@ -85,9 +85,9 @@ if __name__ == "__main__":
     blocks_num = 30
     block_size = 10
     batch_size = 1
-    epsilon = 0.15
+    epsilon = 0.1
     seed = 1
 
-    model = ToyModel(blocks_num=blocks_num, block_size=block_size, layers_num=1).float().cuda()
+    model = ToyModel(blocks_num=blocks_num, block_size=block_size, layers_num=3).float().cuda()
     summary(model, input_size=(4, 1, block_size * blocks_num, block_size * blocks_num))
     train(model=model, batch_size=batch_size, blocks_num=blocks_num, block_size=block_size, epsilon=epsilon, seed=seed)

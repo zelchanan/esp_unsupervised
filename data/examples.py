@@ -30,40 +30,52 @@ def create_block_matrix(batch_size: int, blocks_num: int, block_size: int, epsil
     return m
 
 
-def get_block_from_file(df: pd.DataFrame,vec_size:int) -> List[np.ndarray]:
-    ms = []
-    for id in range(len(df)//2):
+def get_blocks_from_file(df: pd.DataFrame, vec_size: int) -> Tuple[List[np.ndarray], List[int]]:
+    blocks = []
+    sizes = []
+    for id in range(len(df) // 2):
+        orig_size = df.iloc[2 * id, 4]
         rs = df.iloc[2 * id, 5:].values
         cs = df.iloc[2 * id + 1, 5:].values
         block = np.ones((vec_size, vec_size))
         block[rs, cs] = 0
         block[np.eye(block.shape[0]).astype(bool)] = 0
-        #min_eig = np.linalg.eig(block)[0].min()
-        #block[np.eye(block.shape[0]).astype(bool)] = np.abs(min_eig)
+        # min_eig = np.linalg.eig(block)[0].min()
+        # block[np.eye(block.shape[0]).astype(bool)] = np.abs(min_eig)
 
-        ms.append(block)
-    return ms
+        blocks.append(block)
+        sizes.append(orig_size)
+
+    return blocks, sizes
 
 
 def remove_collisions(collision_matrix: np.ndarray, selects: np.ndarray) -> np.ndarray:
-    selects = selects.copy()
-    block_size = selects.shape[1]
-    collisions = find_collisions(collision_matrix, selects)
-    collisions_0 = {x[0] for x in collisions}
-    collisions_1 = {x[1] for x in collisions}
-    # collisions = collisions_0 if len(collisions_0) < len(collisions_1) else collisions_1
-    collisions = collisions_0.union(collisions_1)
-    collisions = list(collisions)
-    collisions.sort()
-    logging.info(f"collsions_num: {len(collisions)}")
-
-    rs = []
-    cs = []
-    for c in collisions:
-        rs.append(c // block_size)
-        cs.append(c % block_size)
-    selects[list(rs), list(cs)] = 0
-    return selects
+    csol = selects.copy()
+    collisions_num = csol.flatten() @ collision_matrix @ csol.flatten()
+    #logging.info(selects.shape)
+    while collisions_num > 0:
+        idxmax = ((csol.flatten() @ collision_matrix) * (csol.flatten())).argmax() // selects.shape[1]
+        csol[idxmax, :] = 0
+        collisions_num = csol.flatten() @ collision_matrix @ csol.flatten()
+    return csol
+    # selects = selects.copy()
+    # block_size = selects.shape[1]
+    # collisions = find_collisions(collision_matrix, selects)
+    # collisions_0 = {x[0] for x in collisions}
+    # collisions_1 = {x[1] for x in collisions}
+    # # collisions = collisions_0 if len(collisions_0) < len(collisions_1) else collisions_1
+    # collisions = collisions_0.union(collisions_1)
+    # collisions = list(collisions)
+    # collisions.sort()
+    # logging.info(f"collsions_num: {len(collisions)}")
+    #
+    # rs = []
+    # cs = []
+    # for c in collisions:
+    #     rs.append(c // block_size)
+    #     cs.append(c % block_size)
+    # selects[list(rs), list(cs)] = 0
+    # return selects
 
 
 def find_collisions(collision_matrix: np.ndarray, paths_dist: np.ndarray) -> Set[Tuple[int, int]]:
