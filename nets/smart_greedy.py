@@ -22,18 +22,13 @@ class SmartGreedy:
     def smart_greedy(self, selects: np.ndarray, row: int):
         self.iteration = self.iteration + 1
 
+        if self.iteration%100000 == 0:
+            logging.info(f"iteration: {self.iteration}, scanned: {self.scanned}, max_sol_size: {self.max_sol_size}, row{row}, no recursion: {self.get_pairs_of_inds(selects)}")
         if ((selects.sum() + self.height - row) <= self.height - 1) or (self.max_sol_size >= self.height):
             self.scanned += self.width ** -(row + 1)
-            logging.info(
-                f"iteration: {self.iteration}, scanned: {self.scanned}, row{row}, no recursion: {self.get_pairs_of_inds(selects)}")
         else:
-            logging.info(f"row: {row}, inside recursion")
+            logging.debug(f"row: {row}, inside recursion")
 
-        # sols = []
-        #     logging.info(
-        #         f"iteration: {self.iteration}, row: {row}, col: {-1}, max_sol_size: {(self.max_sol_size, self.max_selects.sum())},selects: {self.get_pairs_of_inds(selects)}")
-            #self.smart_greedy(selects.copy(), row + 1)  
-            # sols.append(sol)
             for col in range(self.width):
                 tmp_selects = selects.copy()
 
@@ -43,10 +38,13 @@ class SmartGreedy:
                     self.max_sol_size = max(self.max_sol_size, tmp_selects.sum())
                     if tmp_selects.sum() == self.max_sol_size:
                         self.max_selects = tmp_selects
-                    logging.info(
+                    logging.debug(
                         f"iteration: {self.iteration}, row: {row}, col: {col}, max_sol_size: {self.max_sol_size}, selects: {self.get_pairs_of_inds(tmp_selects)}")
                     # if row < height - 1:
-                    self.smart_greedy(tmp_selects, row + 1)
+                self.smart_greedy(tmp_selects, row + 1)
+
+
+
 
 
     @staticmethod
