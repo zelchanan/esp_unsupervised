@@ -170,19 +170,19 @@ def smart_greedy(collision_matrix: np.ndarray, selects: np.ndarray, row: int):
     iteration = iteration + 1
 
     height, width = selects.shape
-    if ((selects.sum() + height - row) <= height - 1) or (max_sol_size>=height):
-        scanned += (width+1) ** -(row + 1)
+    if ((selects.sum() + height - row) <= height - 1) or (max_sol_size >= height):
+        scanned += (width + 1) ** -(row + 1)
         logging.info(
             f"iteration: {iteration}, scanned: {scanned}, row{row}, no recursion: {get_pairs_of_inds(selects)}")
         return max_selects
     else:
         logging.info(f"row: {row}, inside recursion")
 
-    #sols = []
+    # sols = []
     logging.info(
-        f"iteration: {iteration}, row: {row}, col: {-1}, max_sol_size: {(max_sol_size,max_selects.sum())},selects: {get_pairs_of_inds(selects)}")
-    sol = smart_greedy(collision_matrix, selects.copy(), row + 1)
-    #sols.append(sol)
+        f"iteration: {iteration}, row: {row}, col: {-1}, max_sol_size: {(max_sol_size, max_selects.sum())},selects: {get_pairs_of_inds(selects)}")
+    # sol = smart_greedy(collision_matrix, selects.copy(), row + 1)
+    # sols.append(sol)
     for col in range(width):
         tmp_selects = selects.copy()
 
@@ -194,7 +194,7 @@ def smart_greedy(collision_matrix: np.ndarray, selects: np.ndarray, row: int):
                 max_selects = tmp_selects
             logging.info(
                 f"iteration: {iteration}, row: {row}, col: {col}, max_sol_size: {max_sol_size}, selects: {get_pairs_of_inds(tmp_selects)}")
-            #if row < height - 1:
+            # if row < height - 1:
             smart_greedy(collision_matrix, tmp_selects, row + 1)
 
     return max_selects
@@ -283,6 +283,9 @@ if __name__ == "__main__":
     BLOCK_SIZE = 10
     block = examples.create_block_matrix(batch_size=1, blocks_num=BLOCKS_NUM, block_size=BLOCK_SIZE, epsilon=0.1,
                                          seed=1).squeeze()
+    import pickle
+
+    #pickle.dump(block, open(r"comp_block.p", "wb"))
     scanned = 0.0
     selects = np.zeros((BLOCKS_NUM, BLOCK_SIZE))
     max_selects = selects.copy()

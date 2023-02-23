@@ -13,6 +13,7 @@ from torch import nn
 
 from data import examples
 from utils import set_log
+from nets import co
 
 def optim(block: np.ndarray, init_weight: np.ndarray) -> Tuple[float, np.ndarray]:
     weights = torch.Tensor(init_weight).requires_grad_()
