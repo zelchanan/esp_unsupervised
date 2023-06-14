@@ -12,31 +12,41 @@ import matplotlib.pyplot as plt
 
 
 def create_block_matrix(batch_size: int, blocks_num: int, block_size: int, epsilon: float,
-                        seed: int = -1) -> np.ndarray:
+                        seed: int = -1, diagonal_blocks: bool = True) -> np.ndarray:
     l = blocks_num * block_size
     if seed >= 0:
         np.random.seed(seed)
     m = (np.random.rand(batch_size, 1, l, l) < epsilon / 2.0)
-    y, x = np.meshgrid(range(l), range(l))
-    mask = y // block_size == x // block_size
+    mask = get_diagonal_blocks(blocks_num, block_size)
     mask = np.expand_dims(mask, [0, 1])
     mask = np.repeat(mask, batch_size, axis=0)
     # logging.info(f"blocks: {m.shape}, mask: {mask.shape}")
-    m[mask] = True
     m = (m | np.transpose(m, [0, 1, 3, 2])).astype(int)
-    m = m - np.eye(l)
+    if diagonal_blocks:
+        m[mask] = 1
+        m = m - np.eye(l)
+    else:
+        m[mask] = 0
 
     # logging.info(f"shape: {m.shape}")
     return m
 
 
-def get_blocks_from_file(df: pd.DataFrame, vec_size: int) -> Tuple[List[np.ndarray], List[int]]:
+def get_diagonal_blocks(blocks_num: int, block_size: int) -> np.ndarray:
+    l = blocks_num * block_size
+    y, x = np.meshgrid(range(l), range(l))
+    mask = y // block_size == x // block_size
+    # mask = np.expand_dims(mask, [0, 1])
+    return mask
+
+
+def get_blocks_from_df(df: pd.DataFrame, vec_size: int) -> Tuple[List[np.ndarray], List[int]]:
     blocks = []
     sizes = []
     for id in range(len(df) // 2):
-        orig_size = df.iloc[2 * id, 4]
-        rs = df.iloc[2 * id, 5:].values
-        cs = df.iloc[2 * id + 1, 5:].values
+        orig_size = df.iloc[2 * id, 3]
+        rs = df.iloc[2 * id, 4:].values
+        cs = df.iloc[2 * id + 1, 4:].values
         block = np.ones((vec_size, vec_size))
         block[rs, cs] = 0
         block[np.eye(block.shape[0]).astype(bool)] = 0
@@ -49,10 +59,31 @@ def get_blocks_from_file(df: pd.DataFrame, vec_size: int) -> Tuple[List[np.ndarr
     return blocks, sizes
 
 
+def get_blocks_from_raw(path: str, vec_size: int, block_size:int, diagonal_blocks: bool = True) -> Tuple[np.ndarray, List[int]]:
+    f = open(path)
+    lines = []
+    for line in f:
+        lines.append(pd.Series(line.split(",")).astype(int))
+    df = pd.concat(lines, axis=1).T
+
+    blocks, sizes = get_blocks_from_df(df, vec_size)
+    blocks = np.array(blocks)
+    if not diagonal_blocks:
+        #block_size = blocks[0, 0, :].sum() + 1
+        blocks_num = len(blocks[0]) // block_size
+        mask = get_diagonal_blocks(blocks_num, block_size)
+        mask = np.expand_dims(mask, 0)
+        mask = np.repeat(mask, len(blocks), axis=0)
+        logging.info(f"{mask.shape}, {blocks.shape}")
+
+        blocks[mask] = 0
+    return blocks, sizes
+
+
 def remove_collisions(collision_matrix: np.ndarray, selects: np.ndarray) -> np.ndarray:
     csol = selects.copy()
     collisions_num = csol.flatten() @ collision_matrix @ csol.flatten()
-    #logging.info(selects.shape)
+    # logging.info(selects.shape)
     while collisions_num > 0:
         idxmax = ((csol.flatten() @ collision_matrix) * (csol.flatten())).argmax() // selects.shape[1]
         csol[idxmax, :] = 0
@@ -90,6 +121,22 @@ def find_collisions(collision_matrix: np.ndarray, paths_dist: np.ndarray) -> Set
     return set(pairs) & set(coordinates)
 
 
+def get_init_selects(blocks_num: int, block_size: int) -> np.ndarray:
+    selects = np.zeros((blocks_num, block_size))
+    inds = np.random.randint(low=0, high=block_size, size=blocks_num)
+    selects[list(range(blocks_num)), inds] = 1
+    return selects
+
+
 def count_collisions(collision_matrix: np.ndarray, paths_dist: np.ndarray) -> int:
     s = (paths_dist.flatten() > 0.5).astype(float)
     return int(s @ collision_matrix @ s)
+
+
+if __name__ == "__main__":
+    get_init_selects(10, 20)
+    # p = "data/yael_dataset2/gnn_k_100_m_20_e_10_full_sol.csv"
+    # blocks, sizes = get_blocks_from_raw(p, 2000)
+    # f, ax = plt.subplots()
+    # ax.imshow(blocks[0])
+    # plt.pause(100)

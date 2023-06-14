@@ -8,8 +8,13 @@ import logging
 from data import examples
 from utils import set_log
 
+
 class SmartGreedy:
-    def __init__(self, height: int, width: int, collision_matrix: np.ndarray):
+    def __init__(self, height: int, width: int, collision_matrix: np.ndarray, min_required_sol: int = -1):
+        if min_required_sol == -1:
+            self.min_required_sol = height
+        else:
+            self.min_required_sol = min_required_sol
         self.max_sol_size: int = 0
         self.max_selects: np.ndarray = np.zeros((height, width))
 
@@ -22,9 +27,10 @@ class SmartGreedy:
     def smart_greedy(self, selects: np.ndarray, row: int):
         self.iteration = self.iteration + 1
 
-        if self.iteration%100000 == 0:
-            logging.info(f"iteration: {self.iteration}, scanned: {self.scanned}, max_sol_size: {self.max_sol_size}, row{row}, no recursion: {self.get_pairs_of_inds(selects)}")
-        if ((selects.sum() + self.height - row) <= self.height - 1) or (self.max_sol_size >= self.height):
+        if self.iteration % 1000000 == 0:
+            logging.info(
+                f"iteration: {self.iteration//1000000}M, scanned: {self.scanned}, max_sol_size: {self.max_sol_size}, row{row}, no recursion: {self.get_pairs_of_inds(selects)}")
+        if ((selects.sum() + self.height - row) <= self.min_required_sol - 1) or (self.max_sol_size >= self.height):
             self.scanned += self.width ** -(row + 1)
         else:
             logging.debug(f"row: {row}, inside recursion")
@@ -42,10 +48,6 @@ class SmartGreedy:
                         f"iteration: {self.iteration}, row: {row}, col: {col}, max_sol_size: {self.max_sol_size}, selects: {self.get_pairs_of_inds(tmp_selects)}")
                     # if row < height - 1:
                 self.smart_greedy(tmp_selects, row + 1)
-
-
-
-
 
     @staticmethod
     def get_pairs_of_inds(selects: np.ndarray) -> list:

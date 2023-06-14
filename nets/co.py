@@ -216,31 +216,30 @@ def greedy_repair(collision_matrix: np.ndarray, selects: np.ndarray) -> Tuple:
     missing_blocks = np.where((selects == 0).all(axis=1))[0]
     selects_dict = dict([])
     candidates_dict = dict([])
-    for k in range(10000):
-        candidates_list = []
-        tmp_selects = selects.copy()
-        missing_blocks = np.random.permutation(missing_blocks)
-        for ind, m in enumerate(missing_blocks):
-            # logging.info(
-            #     f"k: {k}, ind: {ind}, sum: {tmp_selects.sum()}, val: {tmp_selects.flatten() @ collision_matrix @ tmp_selects.flatten()}")
-            submatrix = collision_matrix[m * block_size:(m + 1) * block_size, :].astype(bool)
-            bool_selects = tmp_selects.flatten().astype(bool)
-            # logging.info(f"#: {bool_selects.sum()}")
-            candidates = ((submatrix & bool_selects) == False).all(axis=1)
-            # logging.info(f"block: {m}, candidates: {candidates}, sum: {candidates.sum()}")
-            if candidates.any():
-                selected_for_block = np.random.choice(np.where(candidates)[0])
-                tmp_selects[m, selected_for_block] = 1
-                candidates_list.append((m, selected_for_block))
-        selects_dict[tmp_selects.sum()] = tmp_selects
-        candidates_dict[tmp_selects.sum()] = candidates_list
-        if tmp_selects.sum() == len(selects):
-            break
+    sizes = []
+    candidates_list = []
+    tmp_selects = selects.copy()
+    missing_blocks = np.random.permutation(missing_blocks)
+    for ind, m in enumerate(missing_blocks):
+        # logging.info(
+        #     f"k: {k}, ind: {ind}, sum: {tmp_selects.sum()}, val: {tmp_selects.flatten() @ collision_matrix @ tmp_selects.flatten()}")
+        submatrix = collision_matrix[m * block_size:(m + 1) * block_size, :].astype(bool)
+        bool_selects = tmp_selects.flatten().astype(bool)
+        # logging.info(f"#: {bool_selects.sum()}")
+        candidates = ((submatrix & bool_selects) == False).all(axis=1)
+        # logging.info(f"block: {m}, candidates: {candidates}, sum: {candidates.sum()}")
+        if candidates.any():
+            selected_for_block = np.random.choice(np.where(candidates)[0])
+            tmp_selects[m, selected_for_block] = 1
+            candidates_list.append((m, selected_for_block))
+    sizes.append(tmp_selects.sum())
+    selects_dict[tmp_selects.sum()] = tmp_selects
+    candidates_dict[tmp_selects.sum()] = candidates_list
 
     # plt.pause(1000)
-    logging.info(list(selects_dict.keys()))
+    #logging.info(list(selects_dict.keys()))
     min_key = max(list(selects_dict.keys()))
-    return selects_dict[min_key], candidates_dict[min_key]
+    return selects_dict[min_key], candidates_dict[min_key],pd.Series(sizes)
 
 
 def get_losses(approx_block: np.ndarray, weights: np.ndarray) -> Tuple[float]:
@@ -259,8 +258,8 @@ def get_losses(approx_block: np.ndarray, weights: np.ndarray) -> Tuple[float]:
 def find_lower_neighbour(collision_matrix: np.ndarray, weights: np.ndarray) -> Tuple[np.ndarray, int]:
     collision_matrix = collision_matrix.copy()
     min_val = np.round(np.linalg.eig(collision_matrix)[0].min())
-    if min_val < 0:
-        collision_matrix = collision_matrix - np.eye(len(collision_matrix)) * min_val
+    # if min_val < 0:
+    #     collision_matrix = collision_matrix - np.eye(len(collision_matrix)) * min_val
 
     blocks_num, block_size = weights.shape
     old_val = weights.flatten() @ collision_matrix @ weights.flatten()
@@ -269,12 +268,14 @@ def find_lower_neighbour(collision_matrix: np.ndarray, weights: np.ndarray) -> T
         tmp[r, :] = 0
         for c in range(block_size):
             tmp[r, c] = 1
+            #logging.info(f"{tmp.sum()},{collision_matrix.sum()}")
             new_val = tmp.flatten() @ collision_matrix @ tmp.flatten()
             if new_val < old_val:
-                logging.info(f"{(r, c, new_val, old_val)}")
-                return tmp, new_val
+                #logging.info(f"{(r, c, new_val, old_val)}")
+                #return tmp, new_val
+                return find_lower_neighbour(collision_matrix, tmp)
             tmp[r, c] = 0
-    return weights, -1
+    return weights, new_val
 
 
 if __name__ == "__main__":
