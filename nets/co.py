@@ -211,7 +211,7 @@ def smart_greedy(collision_matrix: np.ndarray, selects: np.ndarray, row: int):
     #     return smart_greedy(collision_matrix, selects, row + 1, 0, max_collisions)
 
 
-def greedy_repair(collision_matrix: np.ndarray, selects: np.ndarray) -> Tuple:
+def greedy_repair(collision_matrix: np.ndarray, selects: np.ndarray) -> int:
     blocks_num, block_size = selects.shape
     missing_blocks = np.where((selects == 0).all(axis=1))[0]
     selects_dict = dict([])
@@ -232,14 +232,15 @@ def greedy_repair(collision_matrix: np.ndarray, selects: np.ndarray) -> Tuple:
             selected_for_block = np.random.choice(np.where(candidates)[0])
             tmp_selects[m, selected_for_block] = 1
             candidates_list.append((m, selected_for_block))
-    sizes.append(tmp_selects.sum())
-    selects_dict[tmp_selects.sum()] = tmp_selects
-    candidates_dict[tmp_selects.sum()] = candidates_list
+    return tmp_selects.sum()
+    # sizes.append(tmp_selects.sum())
+    # selects_dict[tmp_selects.sum()] = tmp_selects
+    # candidates_dict[tmp_selects.sum()] = candidates_list
 
     # plt.pause(1000)
-    #logging.info(list(selects_dict.keys()))
-    min_key = max(list(selects_dict.keys()))
-    return selects_dict[min_key], candidates_dict[min_key],pd.Series(sizes)
+    # logging.info(list(selects_dict.keys()))
+    # min_key = max(list(selects_dict.keys()))
+    # return selects_dict[min_key], candidates_dict[min_key], pd.Series(sizes)
 
 
 def get_losses(approx_block: np.ndarray, weights: np.ndarray) -> Tuple[float]:
@@ -268,11 +269,11 @@ def find_lower_neighbour(collision_matrix: np.ndarray, weights: np.ndarray) -> T
         tmp[r, :] = 0
         for c in range(block_size):
             tmp[r, c] = 1
-            #logging.info(f"{tmp.sum()},{collision_matrix.sum()}")
+            # logging.info(f"{tmp.sum()},{collision_matrix.sum()}")
             new_val = tmp.flatten() @ collision_matrix @ tmp.flatten()
             if new_val < old_val:
-                #logging.info(f"{(r, c, new_val, old_val)}")
-                #return tmp, new_val
+                # logging.info(f"{(r, c, new_val, old_val)}")
+                # return tmp, new_val
                 return find_lower_neighbour(collision_matrix, tmp)
             tmp[r, c] = 0
     return weights, new_val
@@ -286,7 +287,7 @@ if __name__ == "__main__":
                                          seed=1).squeeze()
     import pickle
 
-    #pickle.dump(block, open(r"comp_block.p", "wb"))
+    # pickle.dump(block, open(r"comp_block.p", "wb"))
     scanned = 0.0
     selects = np.zeros((BLOCKS_NUM, BLOCK_SIZE))
     max_selects = selects.copy()
