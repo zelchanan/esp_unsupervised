@@ -41,6 +41,12 @@ def get_diagonal_blocks(blocks_num: int, block_size: int) -> np.ndarray:
 
 
 def get_blocks_from_df(df: pd.DataFrame, vec_size: int) -> Tuple[List[np.ndarray], List[int]]:
+    errs = df.isnull().sum().sum()
+    if errs !=0:
+        logging.info(f"Errs error: {errs} ")
+        df[df.isnull()]=0
+        df = df.astype(int)
+
     blocks = []
     sizes = []
     for id in range(len(df) // 2):

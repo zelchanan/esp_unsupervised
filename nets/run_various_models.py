@@ -1,8 +1,11 @@
+import os.path
 import sys
+sys.path.append(".")
+import matplotlib
+matplotlib.use('Qt5Agg')
 
 from matplotlib import pyplot as plt
 
-sys.path.append(".")
 
 import glob
 from pathlib import Path
@@ -20,6 +23,9 @@ from nets import toy_net, co, direct_softmax_opt as ds, smart_greedy
 from data import examples
 from utils import set_log
 
+trials_dict = {100: {"greedy": 0.01, "direct_softmax": 0.8, "simplex": 600},
+                   30: {"greedy": 0.001, "direct_softmax": 0.25, "simplex": 1},
+                   10: {"greedy": 0.0001, "direct_softmax": 0.06, "simplex": 0.015}}
 
 def read_data(blocks_num: int, block_size: int, percents: int, full_sol: bool, diag: bool = False) -> Tuple[
     np.ndarray, List[int]]:
@@ -60,6 +66,8 @@ def simplex_one_trial(block: np.ndarray, block_size: int, blocks_num: int) -> Tu
     return size, datetime.now() - t0
 
 
+
+
 def run_algo(algo: str, blocks: np.ndarray, blocks_num: int, block_size: int, percents: int, trials_num: int,
              full_sol: bool,
              max_time: int = 1000000):
@@ -96,10 +104,6 @@ def run_algo(algo: str, blocks: np.ndarray, blocks_num: int, block_size: int, pe
     vals_df.to_csv(vals_fname)
     times_df.to_csv(times_fname)
     return vals_df, times_df
-
-
-
-
 
 
 def read_res(algo: str, blocks_num: int, block_size: int, full_sol: bool):
@@ -152,33 +156,99 @@ def divide_1000():
         df.to_csv(p)
 
 
+def rename_res():
+    fnames = list(Path("results").glob("*.csv"))
+    for fname in fnames:
+        new_name = fname.name.replace("100_20", "100_20_10")
+        new_fname = fname.parent / new_name
+        fname.rename(new_fname)
+
+
 # def run_all_algos(root: str, algo: str, blocks_num: int, block_size: int, ercents: int, full_sol: bool):
+
+
+def run_all_algos(blocks_num: int, block_size: int):
+    algos = ["simplex"]
+    precentses = [30, 50]
+    full_sols = [False, True]
+
+    for percents in precentses:
+        for full_sol in full_sols:
+            blocks, stats = read_data(blocks_num=blocks_num, block_size=block_size, percents=percents,
+                                      full_sol=full_sol)
+            for algo in algos:
+                logging.info(f"\nalgo: {algo}, percents: {percents}, full_sol: {full_sol}")
+
+                run_algo(algo=algo, blocks=blocks, blocks_num=blocks_num, block_size=block_size, percents=percents,
+                         trials_num=10000,
+                         full_sol=full_sol,
+                         max_time=600)
+
+
+def summurize_res(blocks_num: int, block_size: int):
+
+    algos = ["greedy", "direct_softmax", "simplex"]
+    precentses = [5, 10, 20, 30, 50]
+    full_sols = [True, False]
+
+    stats = []
+    for percents in precentses:
+        for full_sol in full_sols:
+            for algo in algos:
+                fname = get_name(root="time_results", algo=algo, token="vals", blocks_num=blocks_num,
+                                 block_size=block_size, percents=percents, full_sol=full_sol)
+                if os.path.exists(fname):
+                    df = pd.read_csv(fname, index_col=0)
+
+                    samples_half = int(np.ceil(0.5 / trials_dict[blocks_num][algo]))
+                    samples_30 = int(np.ceil(30 / trials_dict[blocks_num][algo]))
+                    samples_60 = int(np.ceil(60 / trials_dict[blocks_num][algo]))
+                    samples_600 = int(np.ceil(600 / trials_dict[blocks_num][algo]))
+
+                    med_half = df.iloc[:samples_half, :].max().median()
+                    med_30 = df.iloc[:samples_30, :].max().median()
+                    med_60 = df.iloc[:samples_60, :].max().median()
+                    med_600 = df.iloc[:samples_600, :].max().median()
+
+                    mean_half = df.iloc[:samples_half, :].max().mean()
+                    mean_30 = df.iloc[:samples_30, :].max().mean()
+                    mean_60 = df.iloc[:samples_60, :].max().mean()
+                    mean_600 = df.iloc[:samples_600, :].max().mean()
+
+                    logging.info(f"\nmed_half: {med_half}, med_30: {med_30}, med_60: {med_60}, med_600: {med_600}")
+                    logging.info("#####################################")
+                    stats.append(
+                        [algo, percents, full_sol, med_half, med_30, med_60, med_600, mean_half, mean_30, mean_60,
+                         mean_600])
+    stat_df = pd.DataFrame(stats, columns=["algo", "percents", "full_sol", "med_half", "med_30", "med_60", "med_600",
+                                           "mean_half", "mean_30", "mean_60", "mean_600"])
+    stat_df = stat_df.sort_values(["full_sol", "algo", "percents"])
+    stat_df.to_csv(f"time_results/stats_{blocks_num}_{block_size}.csv")
 
 
 if __name__ == "__main__":
     set_log()
+
+    run_all_algos(blocks_num=30, block_size=10)
+    #summurize_res(blocks_num=10, block_size=10)
+    #summurize_res(blocks_num=30, block_size=10)
+    #summurize_res(blocks_num=100, block_size=20)
+    #time_by_algo_plot(blocks_num=100, block_size=20)
+    # rename_res()
     # analyse_times()
     # plt.pause(1000)
     # #analyse_times("direct_softmax", False)
     # # read_log()
     # # divide_1000()
-    blocks_num = 100
-    block_size = 20
-    percents = 10
-    full_sol = False
-    algos = ["simplex"]
-    precentses = [5,20, 30, 50]
-    full_sols = [True,False]
-    for percents in precentses:
-        for full_sol in full_sols:
-            blocks, stats = read_data(blocks_num=blocks_num, block_size=block_size, percents=percents, full_sol=full_sol)
-            blocks = blocks[:10]
-            for algo in algos:
-                logging.info(f"algo: {algo}, percents: {percents}, full_sol: {full_sol}")
-                run_algo(algo=algo, blocks=blocks, blocks_num=blocks_num, block_size=block_size, percents=percents,
-                         trials_num=1,
-                         full_sol=full_sol,
-                         max_time=900)
+    # run_all_algos()
+
+    # blocks, stats = read_data(blocks_num=blocks_num, block_size=block_size, percents=percents, full_sol=full_sol)
+    # blocks = blocks[:10]
+    # for algo in algos:
+    #     run_algo(algo=algo, blocks=blocks, blocks_num=blocks_num, block_size=block_size, percents=percents,
+    #              trials_num=1,
+    #              full_sol=full_sol,
+    #              max_time=900)
     # size, time = greedy_one_trial(block=blocks[0], block_size=block_size, blocks_num=blocks_num)
     # logging.info(f"greedy: {size} - {time}")
     # size, time = direct_softmax_one_trial(block=blocks[0], block_size=block_size, blocks_num=blocks_num)
