@@ -5,31 +5,42 @@ import itertools
 import numpy as np
 import pandas as pd
 import torch
+import matplotlib
 import matplotlib.pyplot as plt
+
+matplotlib.use('Qt5Agg')
 
 
 # from nets import co
 
-
-def create_block_matrix(batch_size: int, blocks_num: int, block_size: int, epsilon: float,
+def create_block_matrix(blocks_num: int, block_size: int, epsilon: float,
                         seed: int = -1, diagonal_blocks: bool = True) -> np.ndarray:
     l = blocks_num * block_size
     if seed >= 0:
         np.random.seed(seed)
-    m = (np.random.rand(batch_size, 1, l, l) < epsilon / 2.0)
+    m = (np.random.rand(l, l) < epsilon / 2.0)
     mask = get_diagonal_blocks(blocks_num, block_size)
-    mask = np.expand_dims(mask, [0, 1])
-    mask = np.repeat(mask, batch_size, axis=0)
-    # logging.info(f"blocks: {m.shape}, mask: {mask.shape}")
-    m = (m | np.transpose(m, [0, 1, 3, 2])).astype(int)
+
+    m = (m | np.transpose(m)).astype(int)
     if diagonal_blocks:
         m[mask] = 1
         m = m - np.eye(l)
     else:
         m[mask] = 0
 
-    # logging.info(f"shape: {m.shape}")
     return m
+
+
+def create_random_batch(blocks_num: int, block_size: int, epsilon: float, batch_size: int, sol: bool,
+                        seed: int = -1, diagonal_blocks: bool = True) -> np.ndarray:
+    blocks = []
+    for i in range(batch_size):
+        block = create_block_matrix(blocks_num=blocks_num, block_size=block_size, epsilon=epsilon,
+                                    seed=seed, diagonal_blocks=diagonal_blocks)
+        if sol:
+            block = add_sol_to_data(block=block, blocks_num=blocks_num, block_size=block_size)
+        blocks.append(block)
+    return np.stack(blocks, axis=0)
 
 
 def get_diagonal_blocks(blocks_num: int, block_size: int) -> np.ndarray:
@@ -42,9 +53,9 @@ def get_diagonal_blocks(blocks_num: int, block_size: int) -> np.ndarray:
 
 def get_blocks_from_df(df: pd.DataFrame, vec_size: int) -> Tuple[List[np.ndarray], List[int]]:
     errs = df.isnull().sum().sum()
-    if errs !=0:
+    if errs != 0:
         logging.info(f"Errs error: {errs} ")
-        df[df.isnull()]=0
+        df[df.isnull()] = 0
         df = df.astype(int)
 
     blocks = []
@@ -65,7 +76,8 @@ def get_blocks_from_df(df: pd.DataFrame, vec_size: int) -> Tuple[List[np.ndarray
     return blocks, sizes
 
 
-def get_blocks_from_raw(path: str, vec_size: int, block_size:int, diagonal_blocks: bool = True) -> Tuple[np.ndarray, List[int]]:
+def get_blocks_from_raw(path: str, vec_size: int, block_size: int, diagonal_blocks: bool = True) -> Tuple[
+    np.ndarray, List[int]]:
     f = open(path)
     lines = []
     for line in f:
@@ -75,7 +87,7 @@ def get_blocks_from_raw(path: str, vec_size: int, block_size:int, diagonal_block
     blocks, sizes = get_blocks_from_df(df, vec_size)
     blocks = np.array(blocks)
     if not diagonal_blocks:
-        #block_size = blocks[0, 0, :].sum() + 1
+        # block_size = blocks[0, 0, :].sum() + 1
         blocks_num = len(blocks[0]) // block_size
         mask = get_diagonal_blocks(blocks_num, block_size)
         mask = np.expand_dims(mask, 0)
@@ -84,6 +96,16 @@ def get_blocks_from_raw(path: str, vec_size: int, block_size:int, diagonal_block
 
         blocks[mask] = 0
     return blocks, sizes
+
+
+def add_sol_to_data(block: np.ndarray, blocks_num: int, block_size: int) -> np.ndarray:
+    selects = np.zeros((blocks_num, block_size))
+    rs = range(blocks_num)
+    cs = np.random.randint(0, block_size, blocks_num)
+    selects[rs, cs] = 1
+    mask = np.outer(selects.flatten(), selects.flatten()) == 1
+    block[mask] = 0
+    return block
 
 
 def remove_collisions(collision_matrix: np.ndarray, selects: np.ndarray) -> np.ndarray:
@@ -140,7 +162,11 @@ def count_collisions(collision_matrix: np.ndarray, paths_dist: np.ndarray) -> in
 
 
 if __name__ == "__main__":
-    get_init_selects(10, 20)
+    blocks_num = 5
+    block_size = 3
+    epsilon = 0.1
+    blocks = create_random_batch(blocks_num, block_size, epsilon, batch_size=10, sol=True)
+    # add_sol_to_data(blocks, blocks_num, block_size)
     # p = "data/yael_dataset2/gnn_k_100_m_20_e_10_full_sol.csv"
     # blocks, sizes = get_blocks_from_raw(p, 2000)
     # f, ax = plt.subplots()

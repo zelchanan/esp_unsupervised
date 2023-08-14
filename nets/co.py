@@ -258,9 +258,6 @@ def get_losses(approx_block: np.ndarray, weights: np.ndarray) -> Tuple[float]:
 
 def find_lower_neighbour(collision_matrix: np.ndarray, weights: np.ndarray) -> Tuple[np.ndarray, int]:
     collision_matrix = collision_matrix.copy()
-    min_val = np.round(np.linalg.eig(collision_matrix)[0].min())
-    # if min_val < 0:
-    #     collision_matrix = collision_matrix - np.eye(len(collision_matrix)) * min_val
 
     blocks_num, block_size = weights.shape
     old_val = weights.flatten() @ collision_matrix @ weights.flatten()
@@ -277,6 +274,32 @@ def find_lower_neighbour(collision_matrix: np.ndarray, weights: np.ndarray) -> T
                 return find_lower_neighbour(collision_matrix, tmp)
             tmp[r, c] = 0
     return weights, new_val
+
+
+def find_any_lower(collision_matrix: np.ndarray, weights: np.ndarray):
+    collision_matrix = collision_matrix.copy()
+    blocks_num, block_size = weights.shape
+    total_current_val = weights.flatten() @ collision_matrix @ weights.flatten()
+    tmp = weights.copy().flatten()
+    while total_current_val > 0:
+        for block_ind in range(blocks_num):
+            start_ind = block_ind * block_size
+            end_ind = (block_ind + 1) * block_size
+            submatrix = collision_matrix[start_ind:end_ind]
+            old_inner_val = tmp[start_ind:end_ind] @ submatrix @ tmp
+            old_inner_ind = np.where(tmp[start_ind:end_ind] == 1)[0][0]
+            new_inner_vals = submatrix @ tmp.flatten()
+            new_inner_ind = np.argmin(new_inner_vals)
+            new_inner_val = new_inner_vals[new_inner_ind]
+            if new_inner_val < old_inner_val:
+                tmp[start_ind + old_inner_ind] = 0
+                tmp[start_ind + new_inner_ind] = 1
+        if tmp @ collision_matrix @ tmp < total_current_val:
+            #logging.info(f"old: {total_current_val}, new: {tmp @ collision_matrix @ tmp}")
+            total_current_val = tmp @ collision_matrix @ tmp
+        else:
+            break
+    return tmp.reshape((blocks_num, block_size)), total_current_val
 
 
 if __name__ == "__main__":
