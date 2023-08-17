@@ -35,12 +35,37 @@ def create_random_batch(blocks_num: int, block_size: int, epsilon: float, batch_
                         seed: int = -1, diagonal_blocks: bool = True) -> np.ndarray:
     blocks = []
     for i in range(batch_size):
-        block = create_block_matrix(blocks_num=blocks_num, block_size=block_size, epsilon=epsilon,
-                                    seed=seed, diagonal_blocks=diagonal_blocks)
+
+        block = create_block_matrix(blocks_num=blocks_num, block_size=block_size, epsilon=epsilon, seed=seed)
         if sol:
             block = add_sol_to_data(block=block, blocks_num=blocks_num, block_size=block_size)
         blocks.append(block)
     return np.stack(blocks, axis=0)
+
+
+def create_lexical_matrix(blocks_num: int, block_size: int, epsilon: float,
+                          seed: int = -1) -> np.ndarray:
+    block = create_block_matrix(blocks_num=blocks_num, block_size=block_size, epsilon=epsilon,
+                                seed=seed, diagonal_blocks=False)
+    block = add_priorities(block, block_size, blocks_num)
+    return -block
+
+
+def add_priorities(blocks: np.ndarray, block_size: int, blocks_num: int):
+    for ind,block in enumerate(blocks):
+        prices = np.random.rand(blocks_num * block_size, blocks_num * block_size)
+        block = -block * prices
+        mask = get_diagonal_blocks(blocks_num, block_size)
+        block[mask] = -1
+        block[np.diag(np.ones(blocks_num * block_size)).astype(bool)] = 1
+        priorities_vec = np.zeros(blocks_num * block_size)
+        group_size = blocks_num // 4
+        for i in range(4):
+            priorities_vec[i * group_size * block_size:(i + 1) * group_size * block_size] = i + 1
+        priorities_vec[priorities_vec == 0] = 4
+        priority_matrix = np.diag(priorities_vec)
+        blocks[ind] = np.dot(priority_matrix, block)
+    return -blocks
 
 
 def get_diagonal_blocks(blocks_num: int, block_size: int) -> np.ndarray:
@@ -99,23 +124,31 @@ def get_blocks_from_raw(path: str, vec_size: int, block_size: int, diagonal_bloc
 
 
 def add_sol_to_data(block: np.ndarray, blocks_num: int, block_size: int) -> np.ndarray:
+    diag_vals = np.diag(block).copy()
+    diag_mask = np.eye(blocks_num * block_size).astype(bool)
     selects = np.zeros((blocks_num, block_size))
     rs = range(blocks_num)
     cs = np.random.randint(0, block_size, blocks_num)
     selects[rs, cs] = 1
     mask = np.outer(selects.flatten(), selects.flatten()) == 1
     block[mask] = 0
+    block[diag_mask] = diag_vals
     return block
 
 
 def remove_collisions(collision_matrix: np.ndarray, selects: np.ndarray) -> np.ndarray:
     csol = selects.copy()
-    collisions_num = csol.flatten() @ collision_matrix @ csol.flatten()
+    # collisions_num = csol.flatten() @ collision_matrix @ csol.flatten()
     # logging.info(selects.shape)
-    while collisions_num > 0:
-        idxmax = ((csol.flatten() @ collision_matrix) * (csol.flatten())).argmax() // selects.shape[1]
+    vals = ((csol.flatten() @ collision_matrix) * (csol.flatten())).copy()
+    max_val = vals.max()
+    idxmax = ((csol.flatten() @ collision_matrix) * (csol.flatten())).argmax() // selects.shape[1]
+    while max_val > 0:
+        # logging.info(f"max val: {max_val}")
         csol[idxmax, :] = 0
-        collisions_num = csol.flatten() @ collision_matrix @ csol.flatten()
+        # collisions_num = csol.flatten() @ collision_matrix @ csol.flatten()
+        max_val = ((csol.flatten() @ collision_matrix) * (csol.flatten())).max()
+        idxmax = ((csol.flatten() @ collision_matrix) * (csol.flatten())).argmax() // selects.shape[1]
     return csol
     # selects = selects.copy()
     # block_size = selects.shape[1]
@@ -165,7 +198,8 @@ if __name__ == "__main__":
     blocks_num = 5
     block_size = 3
     epsilon = 0.1
-    blocks = create_random_batch(blocks_num, block_size, epsilon, batch_size=10, sol=True)
+    # blocks = create_random_batch(blocks_num, block_size, epsilon, batch_size=10, sol=True)
+    create_lexical_matrix(blocks_num=blocks_num, block_size=block_size, epsilon=epsilon, sol=True, seed=-1)
     # add_sol_to_data(blocks, blocks_num, block_size)
     # p = "data/yael_dataset2/gnn_k_100_m_20_e_10_full_sol.csv"
     # blocks, sizes = get_blocks_from_raw(p, 2000)

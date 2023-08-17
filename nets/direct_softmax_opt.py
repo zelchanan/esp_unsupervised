@@ -18,12 +18,10 @@ from utils import set_log
 from nets import co
 
 
-def optim(block: np.ndarray, init_weight: np.ndarray, priority: np.ndarray = np.empty(0), toplot=False) -> Tuple[
+def optim(block: np.ndarray, init_weight: np.ndarray, toplot=False) -> Tuple[
     float, np.ndarray]:
     weights = torch.Tensor(init_weight).requires_grad_()
     tblock = torch.Tensor(block)
-    if len(priority):
-        priority = torch.Tensor(priority)
     optimizer = torch.optim.Adam([weights], lr=1e-2)
 
     previous_loss = block.size
@@ -38,8 +36,8 @@ def optim(block: np.ndarray, init_weight: np.ndarray, priority: np.ndarray = np.
         sm_weights = torch.nn.Softmax(dim=-1)(weights).flatten()
         optimizer.zero_grad()
         collision_loss = torch.matmul(torch.matmul(sm_weights, tblock), sm_weights)
-        if len(priority):
-            collision_loss = collision_loss + torch.inner(priority, sm_weights.flatten())
+        # if len(priority):
+        #     collision_loss = collision_loss + torch.inner(priority, sm_weights.flatten())
         # collision_loss = torch.matmul(torch.matmul(sm_weights, tapprox_block), sm_weights)
 
         if (i % 25 == 0) and toplot:
@@ -52,13 +50,16 @@ def optim(block: np.ndarray, init_weight: np.ndarray, priority: np.ndarray = np.
         loss = collision_loss.item()
         # logging.info(f"ind: {i}, loss: {loss}")
         optimizer.step()
-        if (np.abs(loss - previous_loss) < 0.01):
+        #logging.info(f"ind: {i}, previous loss: {previous_loss}, loss: {loss}")
+        if (np.abs(loss - previous_loss) < 0.001):
             output_fname = f"{p.name}{os.path.sep}out.mp4"
             pat = f"{p.name}{os.path.sep}img_%03d.png"
             # cmd = f"ffmpeg -y -framerate 2 -i {pat} -c:v libx264 -pix_fmt yuv420p {output_fname}"
             # os.system(cmd)
             return loss, sm_weights.detach().numpy().copy()
         previous_loss = loss
+        if i%1000 == 0:
+            pass
 
     return loss, sm_weights.detach().numpy().copy()
 
@@ -79,5 +80,4 @@ if __name__ == "__main__":
         loss, sm_weights = optim(block, init_weights)
         losses.append(int(loss))
         all_sm_weights.append(sm_weights)
-        logging.info(f"i: {i}, loss: {loss}")
     print(pd.Series(losses).value_counts().sort_index())

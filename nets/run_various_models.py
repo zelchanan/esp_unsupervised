@@ -1,6 +1,8 @@
 import os.path
 import sys
 
+import torch
+
 sys.path.append(".")
 import matplotlib
 
@@ -46,14 +48,14 @@ def get_name(root: str, algo: str, token: str, blocks_num: int, block_size: int,
     return f"{root}/{algo}_{token}_{blocks_num}_{block_size}_{percents}_{'random' if random else 'data'}{'_full_sol' if full_sol else ''}.csv"
 
 
-def direct_softmax_one_trial(block: np.ndarray, block_size: int, blocks_num: int, priority: np.ndarray = np.empty(0)) -> \
+def direct_softmax_one_trial(block: np.ndarray, block_size: int, blocks_num: int) -> \
         Tuple[int, timedelta]:
     t0 = datetime.now()
     init_weights = np.random.randn(blocks_num, block_size)
-    loss, sm_weights = ds.optim(block, init_weights, priority=priority)
+    loss, sm_weights = ds.optim(block, init_weights)
     rm_sol = examples.remove_collisions(block, np.round(sm_weights.reshape(blocks_num, block_size)))
-    sol_size = co.greedy_repair(block, rm_sol)
-    return sol_size, datetime.now() - t0
+    #sol_size = co.greedy_repair(block, rm_sol)
+    return rm_sol.flatten()@block@rm_sol.flatten(), datetime.now() - t0
 
 
 def greedy_one_trial(block: np.ndarray, block_size: int, blocks_num: int) -> Tuple[int, timedelta]:
@@ -68,17 +70,17 @@ def simplex_one_trial(block: np.ndarray, block_size: int, blocks_num: int) -> Tu
     w = examples.get_init_selects(blocks_num, block_size)
     val = w.flatten() @ block @ w.flatten()
     # logging.info(f"val: {val}")
-    #w, val = co.find_lower_neighbour(block, w)
+    # w, val = co.find_lower_neighbour(block, w)
     w, val = co.find_any_lower(block, w)
     selects = examples.remove_collisions(block, w.reshape(blocks_num, block_size))
     size = co.greedy_repair(block, selects)
-    #logging.info(f"size: {size}")
+    # logging.info(f"size: {size}")
     return size, datetime.now() - t0
 
 
 def run_algo(algo: str, blocks: np.ndarray, blocks_num: int, block_size: int, percents: int, trials_num: int,
              full_sol: bool, random: bool,
-             max_time: int = 1000000, priority: np.ndarray = np.empty(0)):
+             max_time: int = 1000000):
     algos_dict = {"greedy": greedy_one_trial,
                   "direct_softmax": direct_softmax_one_trial,
                   "simplex": simplex_one_trial}
@@ -96,16 +98,16 @@ def run_algo(algo: str, blocks: np.ndarray, blocks_num: int, block_size: int, pe
             t0 = datetime.now()
             if algo == "direct_softmax":
 
-                size, time = algos_dict[algo](block=block, block_size=block_size, blocks_num=blocks_num,
-                                              priority=priority)
+                size, time = algos_dict[algo](block=block, block_size=block_size, blocks_num=blocks_num)
             else:
                 size, time = algos_dict[algo](block=block, block_size=block_size, blocks_num=blocks_num)
             vals_list.append(size)
+            logging.info(f"new priority size: {size},max: {max(vals_list)}, min: {min(vals_list)}")
             if max(vals_list) > max_size:
                 max_size = max(vals_list)
                 logging.info(f"time: {(datetime.now() - t_start).total_seconds()}, new max size: {max_size}")
             times_list.append((datetime.now() - t0).total_seconds())
-            if ((datetime.now() - t_start).total_seconds() > max_time) or (max_size==blocks_num):
+            if ((datetime.now() - t_start).total_seconds() > max_time) or (max_size == blocks_num):
                 break
 
         vals_ts = pd.Series(vals_list, name=block_ind)
@@ -119,8 +121,8 @@ def run_algo(algo: str, blocks: np.ndarray, blocks_num: int, block_size: int, pe
                           percents=percents, full_sol=full_sol, random=random)
     times_fname = get_name(root="time_results", algo=algo, token="times", blocks_num=blocks_num, block_size=block_size,
                            percents=percents, full_sol=full_sol, random=random)
-    vals_df.to_csv(vals_fname)
-    times_df.to_csv(times_fname)
+    #vals_df.to_csv(vals_fname)
+    #times_df.to_csv(times_fname)
     return vals_df, times_df
 
 
@@ -186,11 +188,12 @@ def rename_res():
 
 
 def run_all_algos(algos: Tuple[str, ...], precentses: Tuple[int, ...], full_sols: Tuple[bool, ...], blocks_num: int,
-                  block_size: int, random=False, priority: np.ndarray = np.empty(0)):
+                  block_size: int, random=False, priority: bool = False):
     # algos = ["greedy"]
 
     for percents in precentses:
         for full_sol in full_sols:
+
             if random:
                 blocks = examples.create_random_batch(blocks_num=blocks_num, block_size=block_size,
                                                       epsilon=percents / 100,
@@ -198,6 +201,8 @@ def run_all_algos(algos: Tuple[str, ...], precentses: Tuple[int, ...], full_sols
             else:
                 blocks, stats = read_data(blocks_num=blocks_num, block_size=block_size, percents=percents,
                                           full_sol=full_sol)
+            if priority:
+                blocks = examples.add_priorities(blocks= blocks, blocks_num=blocks_num,block_size=block_size)
             for algo in algos:
                 logging.info(
                     f"blocks num: {blocks_num}, block_size: {block_size}, algo: {algo}, percents: {percents}, full_sol: {full_sol}")
@@ -205,14 +210,18 @@ def run_all_algos(algos: Tuple[str, ...], precentses: Tuple[int, ...], full_sols
                 run_algo(algo=algo, blocks=blocks, blocks_num=blocks_num, block_size=block_size, percents=percents,
                          trials_num=1000000,
                          full_sol=full_sol,
-                         max_time=120, random=random,priority=priority)
+                         max_time=120, random=random)
+
+
+def add_perfernces_loss(perfernces: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
+    maxes = torch.max(weights, dim=1)
+    return torch.inner(maxes, perfernces)
 
 
 def summurize_res(blocks_num: int, block_size: int, random: bool):
     algos = ["greedy", "direct_softmax", "simplex"]
     precentses = [5, 10, 20, 30, 50]
     full_sols = [True, False]
-
 
     stats = []
     for percents in precentses:
@@ -297,26 +306,31 @@ def get_pririty(blocks_num: int, block_size: int) -> np.ndarray:
     return np.repeat(np.random.rand(blocks_num), repeats=block_size)
 
 
-
-
-
-
 if __name__ == "__main__":
     set_log()
+
     # get_dict()
 
-    #algos = ("direct_softmax", "greedy")
-    algos = ("simplex",)
-    precentses = (5,20,30,50)
-    #precentses = (5,)
+    # algos = ("direct_softmax", "greedy")
+    algos = ("direct_softmax",)
+    precentses = (10,)
+    # precentses = (5,)
     full_sols = (True, False)
-    #full_sols = (False,)
-    random = True
-    blocks_num = 100
-    block_size = 20
-    #priority = get_pririty(blocks_num=blocks_num, block_size=block_size)
-    # run_all_algos(algos=algos, precentses=precentses, full_sols=full_sols, blocks_num=blocks_num, block_size=block_size,
-    #               random=random, priority=priority)
+    # full_sols = (False,)
+    random = False
+    epsilon = 0.1
+    blocks_num = 30
+    block_size = 10
+    priority = False
+    # block = examples.create_lexical_matrix(blocks_num=blocks_num, block_size=block_size, epsilon=epsilon, sol=True, seed=-1)
+    # block = examples.add_sol_to_data(block=block,blocks_num=blocks_num,block_size=block_size)
+    # init_weights = np.random.rand(blocks_num, block_size)
+    # loss,selects = ds.optim(block,init_weights)
+    # selects = selects.reshape(init_weights.shape)
+    # examples.remove_collisions(block,np.round(selects))
+    # priority = get_pririty(blocks_num=blocks_num, block_size=block_size)
+    run_all_algos(algos=algos, precentses=precentses, full_sols=full_sols, blocks_num=blocks_num, block_size=block_size,
+                  random=random, priority=priority)
     # #
     # # # blocks_num = 30
     # # block_size = 30
@@ -325,9 +339,9 @@ if __name__ == "__main__":
     # run_all_algos(algos=algos, precentses=precentses, full_sols=full_sols, blocks_num=blocks_num, block_size=block_size,
     #              random=random)
     # logging.info("done")
-    #summurize_res(blocks_num=30, block_size=30, random=True)
-    summurize_res(blocks_num=100, block_size=20,random=False)
-    summurize_res(blocks_num=100, block_size=20, random=True)
+    # summurize_res(blocks_num=30, block_size=30, random=True)
+    # summurize_res(blocks_num=100, block_size=20, random=False)
+    # summurize_res(blocks_num=100, block_size=20, random=True)
     # summurize_res(blocks_num=30, block_size=30,random=random)
     # time_by_algo_plot(blocks_num=100, block_size=20)
     # rename_res()
