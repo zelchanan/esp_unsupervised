@@ -211,7 +211,7 @@ def smart_greedy(collision_matrix: np.ndarray, selects: np.ndarray, row: int):
     #     return smart_greedy(collision_matrix, selects, row + 1, 0, max_collisions)
 
 
-def greedy_repair(collision_matrix: np.ndarray, selects: np.ndarray) -> int:
+def greedy_repair(collision_matrix: np.ndarray, selects: np.ndarray) -> np.ndarray:
     blocks_num, block_size = selects.shape
     missing_blocks = np.where((selects == 0).all(axis=1))[0]
     selects_dict = dict([])
@@ -232,7 +232,7 @@ def greedy_repair(collision_matrix: np.ndarray, selects: np.ndarray) -> int:
             selected_for_block = np.random.choice(np.where(candidates)[0])
             tmp_selects[m, selected_for_block] = 1
             candidates_list.append((m, selected_for_block))
-    return tmp_selects.sum()
+    return tmp_selects
     # sizes.append(tmp_selects.sum())
     # selects_dict[tmp_selects.sum()] = tmp_selects
     # candidates_dict[tmp_selects.sum()] = candidates_list

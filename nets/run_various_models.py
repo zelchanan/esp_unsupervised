@@ -46,19 +46,41 @@ def get_name(root: str, algo: str, token: str, blocks_num: int, block_size: int,
     return f"{root}/{algo}_{token}_{blocks_num}_{block_size}_{percents}_{'random' if random else 'data'}{'_full_sol' if full_sol else ''}.csv"
 
 
-def direct_softmax_one_trial(block: np.ndarray, block_size: int, blocks_num: int, priority: np.ndarray = np.empty(0)) -> \
+def direct_softmax_one_trial(block: np.ndarray, block_size: int, blocks_num: int, init_weights=np.empty(0)) -> \
         Tuple[int, timedelta]:
     t0 = datetime.now()
-    init_weights = np.random.randn(blocks_num, block_size)
-    loss, sm_weights = ds.optim(block, init_weights, priority=priority)
-    rm_sol = examples.remove_collisions(block, np.round(sm_weights.reshape(blocks_num, block_size)))
-    sol_size = co.greedy_repair(block, rm_sol)
-    return sol_size, datetime.now() - t0
+    if len(init_weights) == 0:
+        init_weights = np.random.randn(blocks_num, block_size)
+    before_rm_sol_size, reshaped, tmp_rm_sol, rounded_loss = optim_and_remove(block, block_size, blocks_num,
+                                                                              init_weights)
+    rm_sol = np.zeros((blocks_num, block_size))
+    last_sol_size = -1
+    while tmp_rm_sol.sum() > last_sol_size:
+        rm_sol = tmp_rm_sol
+        last_sol_size = tmp_rm_sol.sum()
+        before_rm_sol_size, reshaped, tmp_rm_sol, rounded_loss = optim_and_remove(block, block_size, blocks_num,
+                                                                                  rm_sol.copy())
+
+    repaired = co.greedy_repair(block, rm_sol)
+    repaired_size = repaired.sum()
+    collisions_num = repaired.flatten() @ block @ repaired.flatten()
+    logging.info(
+        f"loss: {rounded_loss}, raw_size: {before_rm_sol_size}: rm_size: {rm_sol.sum()}, greedy_repaired: {repaired_size}, collisions: {collisions_num}")
+    return repaired_size, datetime.now() - t0
+
+
+def optim_and_remove(block, block_size, blocks_num, init_weights):
+    loss, sm_weights = ds.optim(block, init_weights)
+    rounded_loss = np.round(sm_weights) @ block @ np.round(sm_weights)
+    before_rm_sol_size = np.round(sm_weights).sum()
+    reshaped = np.round(sm_weights.reshape(blocks_num, block_size))
+    rm_sol = examples.remove_collisions(block, reshaped)
+    return before_rm_sol_size, reshaped, rm_sol, rounded_loss
 
 
 def greedy_one_trial(block: np.ndarray, block_size: int, blocks_num: int) -> Tuple[int, timedelta]:
     t0 = datetime.now()
-    size = co.greedy_repair(block, np.zeros((blocks_num, block_size)))
+    size = co.greedy_repair(block, np.zeros((blocks_num, block_size))).sum()
     return size, datetime.now() - t0
 
 
@@ -68,11 +90,11 @@ def simplex_one_trial(block: np.ndarray, block_size: int, blocks_num: int) -> Tu
     w = examples.get_init_selects(blocks_num, block_size)
     val = w.flatten() @ block @ w.flatten()
     # logging.info(f"val: {val}")
-    #w, val = co.find_lower_neighbour(block, w)
+    # w, val = co.find_lower_neighbour(block, w)
     w, val = co.find_any_lower(block, w)
     selects = examples.remove_collisions(block, w.reshape(blocks_num, block_size))
-    size = co.greedy_repair(block, selects)
-    #logging.info(f"size: {size}")
+    size = co.greedy_repair(block, selects).sum()
+    # logging.info(f"size: {size}")
     return size, datetime.now() - t0
 
 
@@ -96,8 +118,7 @@ def run_algo(algo: str, blocks: np.ndarray, blocks_num: int, block_size: int, pe
             t0 = datetime.now()
             if algo == "direct_softmax":
 
-                size, time = algos_dict[algo](block=block, block_size=block_size, blocks_num=blocks_num,
-                                              priority=priority)
+                size, time = algos_dict[algo](block=block, block_size=block_size, blocks_num=blocks_num)
             else:
                 size, time = algos_dict[algo](block=block, block_size=block_size, blocks_num=blocks_num)
             vals_list.append(size)
@@ -105,7 +126,7 @@ def run_algo(algo: str, blocks: np.ndarray, blocks_num: int, block_size: int, pe
                 max_size = max(vals_list)
                 logging.info(f"time: {(datetime.now() - t_start).total_seconds()}, new max size: {max_size}")
             times_list.append((datetime.now() - t0).total_seconds())
-            if ((datetime.now() - t_start).total_seconds() > max_time) or (max_size==blocks_num):
+            if ((datetime.now() - t_start).total_seconds() > max_time) or (max_size == blocks_num):
                 break
 
         vals_ts = pd.Series(vals_list, name=block_ind)
@@ -119,8 +140,8 @@ def run_algo(algo: str, blocks: np.ndarray, blocks_num: int, block_size: int, pe
                           percents=percents, full_sol=full_sol, random=random)
     times_fname = get_name(root="time_results", algo=algo, token="times", blocks_num=blocks_num, block_size=block_size,
                            percents=percents, full_sol=full_sol, random=random)
-    vals_df.to_csv(vals_fname)
-    times_df.to_csv(times_fname)
+    # vals_df.to_csv(vals_fname)
+    # times_df.to_csv(times_fname)
     return vals_df, times_df
 
 
@@ -194,10 +215,10 @@ def run_all_algos(algos: Tuple[str, ...], precentses: Tuple[int, ...], full_sols
             if random:
                 blocks = examples.create_random_batch(blocks_num=blocks_num, block_size=block_size,
                                                       epsilon=percents / 100,
-                                                      batch_size=10, sol=full_sol)
+                                                      batch_size=10, sol=full_sol, diagonal_blocks=True)
             else:
                 blocks, stats = read_data(blocks_num=blocks_num, block_size=block_size, percents=percents,
-                                          full_sol=full_sol)
+                                          full_sol=full_sol, diag=True)
             for algo in algos:
                 logging.info(
                     f"blocks num: {blocks_num}, block_size: {block_size}, algo: {algo}, percents: {percents}, full_sol: {full_sol}")
@@ -205,14 +226,13 @@ def run_all_algos(algos: Tuple[str, ...], precentses: Tuple[int, ...], full_sols
                 run_algo(algo=algo, blocks=blocks, blocks_num=blocks_num, block_size=block_size, percents=percents,
                          trials_num=1000000,
                          full_sol=full_sol,
-                         max_time=120, random=random,priority=priority)
+                         max_time=120, random=random, priority=priority)
 
 
 def summurize_res(blocks_num: int, block_size: int, random: bool):
     algos = ["greedy", "direct_softmax", "simplex"]
     precentses = [5, 10, 20, 30, 50]
     full_sols = [True, False]
-
 
     stats = []
     for percents in precentses:
@@ -297,26 +317,22 @@ def get_pririty(blocks_num: int, block_size: int) -> np.ndarray:
     return np.repeat(np.random.rand(blocks_num), repeats=block_size)
 
 
-
-
-
-
 if __name__ == "__main__":
     set_log()
     # get_dict()
 
-    #algos = ("direct_softmax", "greedy")
-    algos = ("simplex",)
-    precentses = (5,20,30,50)
-    #precentses = (5,)
+    # algos = ("direct_softmax", "greedy")
+    algos = ("direct_softmax",)
+    precentses = (20,)
+    # precentses = (5,)
     full_sols = (True, False)
-    #full_sols = (False,)
+    # full_sols = (False,)
     random = True
     blocks_num = 100
     block_size = 20
-    #priority = get_pririty(blocks_num=blocks_num, block_size=block_size)
-    # run_all_algos(algos=algos, precentses=precentses, full_sols=full_sols, blocks_num=blocks_num, block_size=block_size,
-    #               random=random, priority=priority)
+    # priority = get_pririty(blocks_num=blocks_num, block_size=block_size)
+    run_all_algos(algos=algos, precentses=precentses, full_sols=full_sols, blocks_num=blocks_num, block_size=block_size,
+                  random=random)
     # #
     # # # blocks_num = 30
     # # block_size = 30
@@ -325,9 +341,9 @@ if __name__ == "__main__":
     # run_all_algos(algos=algos, precentses=precentses, full_sols=full_sols, blocks_num=blocks_num, block_size=block_size,
     #              random=random)
     # logging.info("done")
-    #summurize_res(blocks_num=30, block_size=30, random=True)
-    summurize_res(blocks_num=100, block_size=20,random=False)
-    summurize_res(blocks_num=100, block_size=20, random=True)
+    # summurize_res(blocks_num=30, block_size=30, random=True)
+    # summurize_res(blocks_num=100, block_size=20,random=False)
+    # summurize_res(blocks_num=100, block_size=20, random=True)
     # summurize_res(blocks_num=30, block_size=30,random=random)
     # time_by_algo_plot(blocks_num=100, block_size=20)
     # rename_res()
