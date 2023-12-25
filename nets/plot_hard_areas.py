@@ -69,14 +69,18 @@ def get_dict() -> dict:
         for full_sol in [True, False]:
             for random in [True, False]:
                 for percents in [5, 10, 20, 30, 50]:
-                    for algo in ("direct_softmax", "greedy"):
+                    for algo in ("direct_softmax", "greedy","simplex"):
                         fname = get_name(root="time_results", algo=algo, token="times", blocks_num=blocks_num,
                                          block_size=block_size, percents=percents, full_sol=full_sol, random=random)
                         if os.path.exists(fname):
                             df = pd.read_csv(fname, index_col=0)
-                            m = df.unstack().sort_values().iloc[10:-10].mean()
+                            if len(df.unstack())>=50:
+                                m = df.unstack().sort_values().iloc[10:-10].mean()
+                            else:
+                                m = df.unstack().sort_values().mean()
                             # logging.info(f"fname: {fname}, mean: {m:.5f}")
                             d[(blocks_num, block_size, full_sol, random, percents, algo)] = m
+                            logging.info(f"dict val: {m}")
     return d
 
 
@@ -92,7 +96,9 @@ def time_by_algo_plot(blocks_num: int, block_size: int):
     algos = ["greedy", "direct_softmax", "simplex"]
     # algos = ["simplex"]
     precentses = [5, 10, 20, 30, 50]
+    precentses = [20]
     full_sols = [True, False]
+    full_sols = [True]
     trials_dict = get_dict()
 
     stats = []
@@ -108,7 +114,7 @@ def time_by_algo_plot(blocks_num: int, block_size: int):
                 ax.set_ylabel(ylabel="matches num", fontsize="xx-large")
 
                 for algo in algos:
-                    marker = "*" if algo == "simplex" else None
+                    marker = "None"#"*" #if algo == "simplex" else None
                     fname = get_name(root="time_results", algo=algo, token="vals", blocks_num=blocks_num,
                                      block_size=block_size, percents=percents, full_sol=full_sol, random=random)
                     logging.info(fname)
@@ -119,14 +125,17 @@ def time_by_algo_plot(blocks_num: int, block_size: int):
                         l = df.notnull().sum().max()
                         df = df.iloc[:l, :]
                         df = df.ffill()
-                        if algo != "simplex":
-                            secs = trials_dict[(blocks_num, block_size, full_sol, random, percents, algo)]
-                        else:
-                            secs = 120
+                        # if algo != "simplex":
+                        secs = trials_dict[(blocks_num, block_size, full_sol, random, percents, algo)]
+                        # else:
+                        #secs = 120
                         max_ts = df.cummax().mean(axis=1)
-                        max_ts.index = max_ts.index * secs
+                        max_ts.index = (max_ts.index+1) * secs
+                        max_ts.loc[120] =  max_ts.iloc[-1]
                         max_ts[l * secs] = max_ts.iloc[-1]
                         max_ts = max_ts.loc[:120]
+                        if random:
+                            max_ts = max_ts+2
                         color = "r" if random else "b"
                         ls = "-" if algo == "greedy" else "-." if algo == "direct_softmax" else ":"
                         label = f"{algo} {'random' if random else ''}"
@@ -139,6 +148,7 @@ def time_by_algo_plot(blocks_num: int, block_size: int):
             #ax.set_ylim([-5,105])
             ax.tick_params(axis='x', labelsize=12)
             ax.tick_params(axis='y', labelsize=12)
+            ax.set_ylim([0,115])
             plt.legend(loc=4,fontsize = "xx-large")
             output_fname = f"img_{blocks_num}_{block_size}_{percents}_{'_full_sol' if full_sol else ''}"
             d = fname.parent / 'imgs'
@@ -150,8 +160,8 @@ def time_by_algo_plot(blocks_num: int, block_size: int):
 
 if __name__ == "__main__":
     set_log()
-    #time_by_algo_plot(blocks_num=100, block_size=20)
-    show_hardness("direct_softmax",True)
-    show_hardness("direct_softmax",False)
+    time_by_algo_plot(blocks_num=100, block_size=20)
+    #show_hardness("direct_softmax",True)
+    #show_hardness("direct_softmax",False)
     # show_hardness("direct_softmax")
     # show_hardness("simplex")

@@ -31,14 +31,13 @@ def create_block_matrix(blocks_num: int, block_size: int, epsilon: float,
     return m
 
 
-def create_random_batch(blocks_num: int, block_size: int, epsilon: float, batch_size: int, sol: bool,
-                        seed: int = -1, diagonal_blocks: bool = True) -> np.ndarray:
+def create_random_batch(blocks_num: int, block_size: int, epsilon: float, batch_size: int,
+                        seed: bool = False, diagonal_blocks: bool = True) -> np.ndarray:
     blocks = []
     for i in range(batch_size):
+        seed_val = i+1 if seed else -1
 
-        block = create_block_matrix(blocks_num=blocks_num, block_size=block_size, epsilon=epsilon, seed=seed)
-        if sol:
-            block = add_sol_to_data(block=block, blocks_num=blocks_num, block_size=block_size)
+        block = create_block_matrix(blocks_num=blocks_num, block_size=block_size, epsilon=epsilon, seed=seed_val                                                                                                                    )
         blocks.append(block)
     return np.stack(blocks, axis=0)
 
@@ -52,7 +51,7 @@ def create_lexical_matrix(blocks_num: int, block_size: int, epsilon: float,
 
 
 def add_priorities(blocks: np.ndarray, block_size: int, blocks_num: int):
-    for ind,block in enumerate(blocks):
+    for ind, block in enumerate(blocks):
         prices = np.random.rand(blocks_num * block_size, blocks_num * block_size)
         block = -block * prices
         mask = get_diagonal_blocks(blocks_num, block_size)
@@ -123,14 +122,19 @@ def get_blocks_from_raw(path: str, vec_size: int, block_size: int, diagonal_bloc
     return blocks, sizes
 
 
-def add_sol_to_data(block: np.ndarray, blocks_num: int, block_size: int) -> np.ndarray:
+def add_sol_to_data(block: np.ndarray, blocks_num: int, block_size: int, sol: float) -> np.ndarray:
     diag_vals = np.diag(block).copy()
     diag_mask = np.eye(blocks_num * block_size).astype(bool)
     selects = np.zeros((blocks_num, block_size))
-    rs = range(blocks_num)
-    cs = np.random.randint(0, block_size, blocks_num)
+    num = int(blocks_num*sol)
+    rs = np.random.choice(range(blocks_num),num,replace=False)
+    cs = np.random.randint(0, block_size, num)
+    #mask = (np.random.rand(blocks_num) < sol).astype(int)
+    #cs *= mask
+
     selects[rs, cs] = 1
     mask = np.outer(selects.flatten(), selects.flatten()) == 1
+
     block[mask] = 0
     block[diag_mask] = diag_vals
     return block
@@ -198,8 +202,8 @@ if __name__ == "__main__":
     blocks_num = 5
     block_size = 3
     epsilon = 0.1
-    # blocks = create_random_batch(blocks_num, block_size, epsilon, batch_size=10, sol=True)
-    create_lexical_matrix(blocks_num=blocks_num, block_size=block_size, epsilon=epsilon, sol=True, seed=-1)
+    blocks = create_random_batch(blocks_num, block_size, epsilon, batch_size=10, sol=True)
+    create_lexical_matrix(blocks_num=blocks_num, block_size=block_size, epsilon=epsilon, sol=True, seed=1)
     # add_sol_to_data(blocks, blocks_num, block_size)
     # p = "data/yael_dataset2/gnn_k_100_m_20_e_10_full_sol.csv"
     # blocks, sizes = get_blocks_from_raw(p, 2000)

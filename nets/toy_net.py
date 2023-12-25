@@ -4,12 +4,13 @@ import logging
 import numpy as np
 import torch
 import torch.nn as nn
+import matplotlib.pyplot as plt
 
 from data import examples
 from utils import set_log
 from torchinfo import summary
 
-
+from nets.co import greedy_repair
 class ToyModel(nn.Module):
     def __init__(self, blocks_num: int, block_size: int, layers_num: int):
         super().__init__()
@@ -20,7 +21,7 @@ class ToyModel(nn.Module):
         self.final_hidden_layer_dim = (int(self.final_dim) // (2 ** self.layers_num)) ** 2
         self.model = self.__create__()
 
-        # self.summer = torch.ones(block_size)
+        # self.summer = torch.on-----------es(block_size)
         # self.selector = nn.Sequential(
         #     nn.Conv2d(in_channels=1, out_channels=10, kernel_size=(1, self.final_dim), padding="same"), nn.ReLU(),
 
@@ -62,28 +63,59 @@ class ToyModel(nn.Module):
     def loss_fn(self, collision_matrix: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
         # weights = torch.reshape(weights, [self.blocks_num, self.block_size])
         # sm_weights = torch.nn.Softmax(dim=-1)(weights).flatten()
-        return torch.matmul(torch.matmul(weights.flatten(), collision_matrix.squeeze()), weights.flatten())
+        l = torch.Tensor([0]).cuda()
+        weights = torch.flatten(weights, start_dim=1)
+        for ind, row in enumerate(weights.flatten(start_dim=1)):
+            one_block_loss =  torch.matmul(torch.matmul(row, collision_matrix[ind, 0]), row)
+            #logging.info(f"one block loss: {one_block_loss}")
+            l += one_block_loss
 
-    def opt(self, collision_matirx: np.ndarray,iterations: int) -> np.ndarray:
-        block = np.expand_dims(np.expand_dims(collision_matirx, 0), 0)
-        block = torch.Tensor(block).float().cuda()
+        return l
+
+    def opt(self, blocks: torch.Tensor,i:int) -> np.ndarray:
 
         learning_rate = 1e-3
         optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
-        for i in range(iterations):
-            # data_batch = create_block_matrix(batch_size=batch_size, blocks_num=blocks_num, block_size=block_size,
-            #                                  epsilon=epsilon, seed=seed)
-            optimizer.zero_grad()
-            output = self(block)
-            loss = self.loss_fn(collision_matrix=block, weights=output)
-            # plot_triple(data, labels, pred)
 
-            # Backpropagation
-            loss.backward()
-            # print(loss.item())
-            optimizer.step()
+        # data_batch = create_block_matrix(batch_size=batch_size, blocks_num=blocks_num, block_size=block_size,
+        #                                  epsilon=epsilon, seed=seed)
+        optimizer.zero_grad()
+        output = self(blocks)
+        loss = self.loss_fn(collision_matrix=blocks, weights=output)
+        # plot_triple(data, labels, pred)
+
+        # Backpropagation
+        loss.backward()
+        # print(loss.item())
+        optimizer.step()
+        if i%50 == 0:
             logging.info(f"ind: {i}, {loss.item()}")
         return output.squeeze().detach().cpu().numpy()
+
+
+def get_batch_with_sol(blocks_num: int, block_size: int,
+                       epsilon: float,
+                       batch_size: int, diagonal_blocks: bool, seed:bool) -> torch.Tensor:
+    blocks = examples.create_random_batch(blocks_num=blocks_num, block_size=block_size,
+                                          epsilon=epsilon,
+                                          batch_size=10, diagonal_blocks=True, seed=seed)
+    for ind, block in enumerate(blocks):
+        blocks[ind] = examples.add_sol_to_data(block, blocks_num=blocks_num, block_size=block_size, sol=1.0)
+    return torch.Tensor(np.expand_dims(blocks, 1)).cuda()
+
+def proccess_res(reses:np.ndarray,blocks:torch.Tensor):
+    blocks = blocks.cpu().numpy().squeeze()
+    for ind,block in enumerate(blocks):
+        res = reses[ind]
+        res = examples.remove_collisions(block,res)
+        rm_val = res.sum()
+        res = greedy_repair(block,res)
+        repaired_val = res.sum()
+        logging.info(res.sum())
+        greedy_val = greedy_repair(block,np.zeros_like(res)).sum()
+        logging.info(f"rm_val: {rm_val}, repaired_val: {repaired_val}, greedy_val: {greedy_val}")
+
+
 
 
 if __name__ == "__main__":
@@ -93,9 +125,18 @@ if __name__ == "__main__":
     batch_size = 1
     epsilon = 0.1
     seed = 1
-    collision_matrix = examples.create_block_matrix(batch_size=batch_size, blocks_num=blocks_num, block_size=block_size,
-                                                    epsilon=0.1,
-                                                    seed=1).squeeze()
+    # collision_matrix = examples.create_block_matrix(blocks_num=blocks_num, block_size=block_size,
+    #                                                 epsilon=0.1,
+    #                                                 seed=1).squeeze()
     model = ToyModel(blocks_num=blocks_num, block_size=block_size, layers_num=3).float().cuda()
-    summary(model, input_size=(4, 1, block_size * blocks_num, block_size * blocks_num))
-    model.opt(collision_matrix)
+    for i in range(10000):
+        blocks = get_batch_with_sol(blocks_num=blocks_num, block_size=block_size,
+                                    epsilon=epsilon,
+                                    batch_size=10, diagonal_blocks=True, seed=False)
+        old_blocks = blocks.detach().cpu().numpy().copy()
+        # summary(model, input_size=(4, 1, block_size * blocks_num, block_size * blocks_num))
+        reses = model.opt(blocks,i)
+    proccess_res(reses=reses,blocks=blocks)
+
+
+

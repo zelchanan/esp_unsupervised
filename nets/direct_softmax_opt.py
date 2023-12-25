@@ -22,7 +22,7 @@ def optim(block: np.ndarray, init_weight: np.ndarray, toplot=False) -> Tuple[
     float, np.ndarray]:
     weights = torch.Tensor(init_weight).requires_grad_()
     tblock = torch.Tensor(block)
-    optimizer = torch.optim.Adam([weights], lr=1e-2)
+    optimizer = torch.optim.Adam([weights], lr=1e-1)
 
     previous_loss = block.size
 
@@ -51,7 +51,7 @@ def optim(block: np.ndarray, init_weight: np.ndarray, toplot=False) -> Tuple[
         # logging.info(f"ind: {i}, loss: {loss}")
         optimizer.step()
         #logging.info(f"ind: {i}, previous loss: {previous_loss}, loss: {loss}")
-        if (np.abs(loss - previous_loss) < 0.001):
+        if (np.abs(loss - previous_loss) < 0.1):
             output_fname = f"{p.name}{os.path.sep}out.mp4"
             pat = f"{p.name}{os.path.sep}img_%03d.png"
             # cmd = f"ffmpeg -y -framerate 2 -i {pat} -c:v libx264 -pix_fmt yuv420p {output_fname}"

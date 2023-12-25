@@ -39,6 +39,7 @@ def sqrt_block(block: np.ndarray) -> np.ndarray:
     return np.real(eigs @ d @ eigs.T)
 
 
+
 def get_selects(r_weights: np.ndarray, threshold: float = 0.5) -> np.ndarray:
     maxes = np.argmax(r_weights, axis=1).flatten()
     zeros_mask = r_weights.max(axis=1) < threshold
