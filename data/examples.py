@@ -1,17 +1,48 @@
 import logging
-from typing import Set, Tuple, List
+from typing import Set, Tuple, List, Optional
 import itertools
 
 import numpy as np
 import pandas as pd
-import torch
 import matplotlib
+from scipy import optimize
+from scipy.optimize import milp
 import matplotlib.pyplot as plt
+from scipy.sparse import bsr_array
+
+from utils import set_log
 
 matplotlib.use('Qt5Agg')
 
 
 # from nets import co
+
+class CollisionsMatrix():
+    def __init__(self, collision_matrix: np.ndarray, sizes: Optional[List[int]] = None):
+        self.collision_matrix = collision_matrix
+        self.total_size = len(self.collision_matrix)
+        self.start_inds, self.end_inds = self.extract_blocks(sizes)
+        self.sizes = self.end_inds - self.start_inds + 1
+        self.blocks_num: int = len(self.sizes)
+
+    def extract_blocks(self, sizes: Optional[List[int]] = None) -> Tuple[np.ndarray, np.ndarray]:
+        if sizes:
+            cumsum = np.cumsum(sizes)
+            end_inds = cumsum - 1
+            start_inds = np.hstack([np.array([0]), cumsum[:-1]])
+        else:
+            sub_diag = np.diag(self.collision_matrix, -1)
+            inds = np.where(sub_diag == 0)[0]
+            start_inds = np.hstack([np.array([0]), inds + 1])
+            end_inds = np.hstack([inds, np.array(len(self.collision_matrix) - 1)])
+        return start_inds, end_inds
+
+    def get_block_and_inner_ind(self, total_ind: int) -> Tuple[int, int]:
+        m = (total_ind >= self.start_inds) & (total_ind <= self.end_inds)
+        block = np.where(m)[0][0]
+        inner_ind = total_ind - self.start_inds[block]
+        return block, inner_ind
+
 
 def create_block_matrix(blocks_num: int, block_size: int, epsilon: float,
                         seed: int = -1, diagonal_blocks: bool = True) -> np.ndarray:
@@ -35,9 +66,9 @@ def create_random_batch(blocks_num: int, block_size: int, epsilon: float, batch_
                         seed: bool = False, diagonal_blocks: bool = True) -> np.ndarray:
     blocks = []
     for i in range(batch_size):
-        seed_val = i+1 if seed else -1
+        seed_val = i + 1 if seed else -1
 
-        block = create_block_matrix(blocks_num=blocks_num, block_size=block_size, epsilon=epsilon, seed=seed_val                                                                                                                    )
+        block = create_block_matrix(blocks_num=blocks_num, block_size=block_size, epsilon=epsilon, seed=seed_val)
         blocks.append(block)
     return np.stack(blocks, axis=0)
 
@@ -126,11 +157,11 @@ def add_sol_to_data(block: np.ndarray, blocks_num: int, block_size: int, sol: fl
     diag_vals = np.diag(block).copy()
     diag_mask = np.eye(blocks_num * block_size).astype(bool)
     selects = np.zeros((blocks_num, block_size))
-    num = int(blocks_num*sol)
-    rs = np.random.choice(range(blocks_num),num,replace=False)
+    num = int(blocks_num * sol)
+    rs = np.random.choice(range(blocks_num), num, replace=False)
     cs = np.random.randint(0, block_size, num)
-    #mask = (np.random.rand(blocks_num) < sol).astype(int)
-    #cs *= mask
+    # mask = (np.random.rand(blocks_num) < sol).astype(int)
+    # cs *= mask
 
     selects[rs, cs] = 1
     mask = np.outer(selects.flatten(), selects.flatten()) == 1
@@ -199,14 +230,65 @@ def count_collisions(collision_matrix: np.ndarray, paths_dist: np.ndarray) -> in
 
 
 if __name__ == "__main__":
-    blocks_num = 5
-    block_size = 3
-    epsilon = 0.1
-    blocks = create_random_batch(blocks_num, block_size, epsilon, batch_size=10, sol=True)
-    create_lexical_matrix(blocks_num=blocks_num, block_size=block_size, epsilon=epsilon, sol=True, seed=1)
-    # add_sol_to_data(blocks, blocks_num, block_size)
-    # p = "data/yael_dataset2/gnn_k_100_m_20_e_10_full_sol.csv"
-    # blocks, sizes = get_blocks_from_raw(p, 2000)
-    # f, ax = plt.subplots()
-    # ax.imshow(blocks[0])
-    # plt.pause(100)
+    set_log()
+    blocks_num = 100
+    block_size = 20
+    epsilon = 0.05
+    blocks = create_random_batch(blocks_num, block_size, epsilon, batch_size=10)
+    cm = CollisionsMatrix(blocks[0], sizes=blocks_num * [block_size])
+    num_of_vars = cm.total_size + cm.total_size * (cm.total_size - 1) // 2
+    num_of_equations = cm.blocks_num + cm.total_size * (cm.total_size - 1)
+    above_diagonal = np.array(
+        [cm.collision_matrix[i, j] for i in range(cm.total_size) for j in range(i + 1, cm.total_size)])
+    above_inds = [[i, j] for i in range(cm.total_size) for j in range(i + 1, cm.total_size)]
+
+    integrality = np.ones(num_of_vars).astype(bool)
+    constaraints_matrix = np.zeros((num_of_equations, num_of_vars))
+    for i in range(cm.blocks_num):
+        constaraints_matrix[i, cm.start_inds[i]:cm.end_inds[i] + 1] = 1
+    for k in range(cm.blocks_num, num_of_equations - 1, 2):
+        c, r = above_inds[(k - cm.blocks_num) // 2]
+        block_ind, inner_ind = cm.get_block_and_inner_ind(c)
+        # logging.info(f"k: {k}, c: {c}, r: {r}, block_ind: {block_ind}, inner_ind: {inner_ind}")
+        first_block_ind = cm.start_inds[block_ind] + inner_ind
+        block_ind, inner_ind = cm.get_block_and_inner_ind(r)
+        second_block_ind = cm.start_inds[block_ind] + inner_ind
+        constaraints_matrix[k, (k - cm.blocks_num) // 2 + cm.total_size] = 1
+        constaraints_matrix[k, first_block_ind] = -1
+        constaraints_matrix[k + 1, (k - cm.blocks_num) // 2 + cm.total_size] = 1
+        constaraints_matrix[k + 1, second_block_ind] = -1
+    f, ax = plt.subplots()
+    ax.imshow(constaraints_matrix)
+    bounds = optimize.Bounds(0, 1)  # 0 <= x_i <= 1
+    lb = np.zeros(num_of_equations)
+    lb[:cm.blocks_num] = 1
+    lb[cm.blocks_num:] = -np.inf
+    ub = np.zeros(num_of_equations)
+    ub[:cm.blocks_num] = 1
+    constraints = optimize.LinearConstraint(constaraints_matrix, lb=lb, ub=ub)
+    # c = cm.collision_matrix.flatten()
+    c = np.hstack([np.zeros(cm.total_size), above_diagonal])-1
+    res = milp(c=c, constraints=constraints, integrality=integrality, bounds=bounds)
+    f, axes = plt.subplots(2, 2)
+    selected_vars = res.x[:cm.total_size].reshape((cm.blocks_num, cm.total_size // cm.blocks_num))
+    axes[0,0].imshow(selected_vars)
+    axes[0,1].imshow(np.outer(selected_vars.flatten(), selected_vars.flatten()))
+    collision_vars = res.x[cm.total_size:]
+    m = np.zeros((cm.total_size, cm.total_size))
+    counter = 0
+    for i in range(cm.total_size):
+        for j in range(i + 1, cm.total_size):
+            m[i, j] = collision_vars[counter]
+            counter += 1
+    axes[1,0].imshow(m + m.T)
+    axes[1,1].imshow(cm.collision_matrix)
+    logging.info(res.x)
+    plt.pause(1000)
+
+# create_lexical_matrix(blocks_num=blocks_num, block_size=block_size, epsilon=epsilon, sol=True, seed=1)
+# add_sol_to_data(blocks, blocks_num, block_size)
+# p = "data/yael_dataset2/gnn_k_100_m_20_e_10_full_sol.csv"
+# blocks, sizes = get_blocks_from_raw(p, 2000)
+# f, ax = plt.subplots()
+# ax.imshow(blocks[0])
+# plt.pause(100)

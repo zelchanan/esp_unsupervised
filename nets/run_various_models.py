@@ -99,19 +99,18 @@ def simplex_one_trial(block: np.ndarray, block_size: int, blocks_num: int) -> Tu
     # logging.info(f"size: {size}")
     return sol, datetime.now() - t0
 
-def extract_stat(block:np.ndarray,sol:np.ndarray)->tuple:
-    blocks_num,block_size = sol.shape
-    start_blocks_inds = (np.arange(blocks_num)*block_size).astype(int)
-    #start_blocks_inds = pd.Series(sol.sum(axis=1) == 1)  # .groupby(np.diag(block))
+
+def extract_stat(block: np.ndarray, sol: np.ndarray) -> tuple:
+    blocks_num, block_size = sol.shape
+    start_blocks_inds = (np.arange(blocks_num) * block_size).astype(int)
+    # start_blocks_inds = pd.Series(sol.sum(axis=1) == 1)  # .groupby(np.diag(block))
     grouper = np.diag(block)[start_blocks_inds]
-    selected_inds =  sol.sum(axis=1)==1
+    selected_inds = sol.sum(axis=1) == 1
     counts = pd.Series(grouper[selected_inds]).value_counts()
     counts.index = counts.index.map(np.abs)
     counts = counts.sort_index()
     return tuple(counts.tolist())
-    #selected_inds.groupby(start_blocks_inds)
-
-
+    # selected_inds.groupby(start_blocks_inds)
 
 
 def run_algo(algo: str, blocks: np.ndarray, blocks_num: int, block_size: int, percents: int, trials_num: int,
@@ -142,7 +141,7 @@ def run_algo(algo: str, blocks: np.ndarray, blocks_num: int, block_size: int, pe
             else:
                 sol, time = algos_dict[algo](block=block, block_size=block_size, blocks_num=blocks_num)
             sols_list.append(sol)
-            stats_list.append(extract_stat(block,sol))
+            stats_list.append(extract_stat(block, sol))
             vals_list.append(sol.flatten() @ block @ sol.flatten())
             # logging.info(f"new priority size: {size},max: {max(vals_list)}, min: {min(vals_list)}")
             if max(vals_list) > max_size:
@@ -157,12 +156,11 @@ def run_algo(algo: str, blocks: np.ndarray, blocks_num: int, block_size: int, pe
         times_ts = pd.Series(times_list, name=block_ind)
         times_tss.append(times_ts)
         stats_ts = pd.Series(stats_list)
-        stats_tss = pd.Series(stats_ts)
-
+        stats_tss.append(stats_ts)
 
     vals_df = pd.concat(vals_tss, axis=1)
     times_df = pd.concat(times_tss, axis=1)
-    stats_df = pd.DataFrame(stats_tss)
+    stats_df = pd.concat(stats_tss, axis=1)
     if full_sol in [0.0, 1.0]:
         vals_fname = get_name(root="results_priority", algo=algo, token="vals", blocks_num=blocks_num,
                               block_size=block_size,
@@ -272,8 +270,6 @@ def run_all_algos(algos: Tuple[str, ...], precentses: Tuple[int, ...], full_sols
                          max_time=120, random=random)
 
 
-
-
 def summurize_res(blocks_num: int, block_size: int, random: bool):
     algos = ["greedy", "direct_softmax", "simplex"]
     precentses = [5, 10, 20, 30, 50]
@@ -288,31 +284,32 @@ def summurize_res(blocks_num: int, block_size: int, random: bool):
                 if os.path.exists(fname):
                     df = pd.read_csv(fname, index_col=0)
 
-                    samples_half = int(np.ceil(0.5 / trials_dict[blocks_num][algo]))
-                    samples_30 = int(np.ceil(30 / trials_dict[blocks_num][algo]))
-                    samples_60 = int(np.ceil(60 / trials_dict[blocks_num][algo]))
-                    samples_600 = int(np.ceil(600 / trials_dict[blocks_num][algo]))
-
-                    med_half = df.iloc[:samples_half, :].max().median()
-                    med_30 = df.iloc[:samples_30, :].max().median()
-                    med_60 = df.iloc[:samples_60, :].max().median()
-                    med_600 = df.iloc[:samples_600, :].max().median()
-
-                    mean_half = df.iloc[:samples_half, :].max().mean()
-                    mean_30 = df.iloc[:samples_30, :].max().mean()
-                    mean_60 = df.iloc[:samples_60, :].max().mean()
-                    mean_600 = df.iloc[:samples_600, :].max().mean()
-
-                    logging.info(f"\nmed_half: {med_half}, med_30: {med_30}, med_60: {med_60}, med_600: {med_600}")
-                    logging.info("#####################################")
-                    stats.append(
-                        [algo, percents, full_sol, med_half, med_30, med_60, med_600, mean_half, mean_30, mean_60,
-                         mean_600])
+                    get_quantiles(algo, blocks_num, df, full_sol, percents, stats)
     stat_df = pd.DataFrame(stats, columns=["algo", "percents", "full_sol", "med_half", "med_30", "med_60", "med_600",
                                            "mean_half", "mean_30", "mean_60", "mean_600"])
     stat_df = stat_df.sort_values(["percents", "full_sol", "algo"])
     stat_df.to_csv(
         f"time_results{'_random' if random else ''}/stats_{blocks_num}_{block_size}{'_random' if random else ''}.csv")
+
+
+def get_quantiles(algo: str, blocks_num: int, df: pd.DataFrame, full_sol: bool, percents: int, stats: list):
+    samples_half = int(np.ceil(0.5 / trials_dict[blocks_num][algo]))
+    samples_30 = int(np.ceil(30 / trials_dict[blocks_num][algo]))
+    samples_60 = int(np.ceil(60 / trials_dict[blocks_num][algo]))
+    samples_600 = int(np.ceil(600 / trials_dict[blocks_num][algo]))
+    med_half = df.iloc[:samples_half, :].max().median()
+    med_30 = df.iloc[:samples_30, :].max().median()
+    med_60 = df.iloc[:samples_60, :].max().median()
+    med_600 = df.iloc[:samples_600, :].max().median()
+    mean_half = df.iloc[:samples_half, :].max().mean()
+    mean_30 = df.iloc[:samples_30, :].max().mean()
+    mean_60 = df.iloc[:samples_60, :].max().mean()
+    mean_600 = df.iloc[:samples_600, :].max().mean()
+    logging.info(f"\nmed_half: {med_half}, med_30: {med_30}, med_60: {med_60}, med_600: {med_600}")
+    logging.info("#####################################")
+    stats.append(
+        [algo, percents, full_sol, med_half, med_30, med_60, med_600, mean_half, mean_30, mean_60,
+         mean_600])
 
 
 def bp_min_match():
@@ -362,6 +359,39 @@ def get_pririty(blocks_num: int, block_size: int) -> np.ndarray:
     return np.repeat(np.random.rand(blocks_num), repeats=block_size)
 
 
+def analyze_priority(blocks_num, block_size, random):
+    algos = ["greedy", "direct_softmax", "simplex"]
+    precentses = [5, 10, 20, 30, 50]
+    full_sols = [True, False]
+
+    stats = []
+    for percents in precentses:
+        for full_sol in full_sols:
+            for algo in algos:
+                fname = get_name(root=f"results_priority", algo=algo, token="stats", blocks_num=blocks_num,
+                                 block_size=block_size, percents=percents, full_sol=full_sol, random=random)
+                if os.path.exists(fname):
+                    df = pd.read_csv(fname, index_col=0)
+
+                    # df = df.astype(str)
+                    try:
+                        df = df.applymap(lambda x: list(map(int, x[1:-1].split(','))) if x is not np.nan else [np.nan] * 4)
+                    except:
+                        print(df)
+                    vals_tss = []
+                    for name, ts in df.iteritems():
+                        category_df = pd.DataFrame(zip(*(ts.values))).T
+                        vals = category_df @ np.arange(1, category_df.shape[1] + 1)
+                        vals_tss.append(pd.Series(vals))
+                    vals_df = pd.concat(vals_tss, axis=1)
+                    get_quantiles(algo, blocks_num, vals_df, full_sol, percents, stats)
+    stat_df = pd.DataFrame(stats, columns=["algo", "percents", "full_sol", "med_half", "med_30", "med_60", "med_600",
+                                           "mean_half", "mean_30", "mean_60", "mean_600"])
+    stat_df = stat_df.sort_values(["percents", "full_sol", "algo"])
+    stat_df.to_csv(
+        f"results_priority{'_random' if random else ''}/stats_{blocks_num}_{block_size}{'_random' if random else ''}.csv")
+
+
 if __name__ == "__main__":
     set_log()
 
@@ -369,20 +399,21 @@ if __name__ == "__main__":
     #
     # d = get_dict()
     #
-    # algos = ("greedy","direct_softmax", "simplex")
+    algos = ("greedy", "direct_softmax", "simplex")
     # #algos = ("direct_softmax",)
-    # precentses = (5, 10, 20, 30, 50)
+    precentses = (5, 10, 20, 30, 50)
     # #precentses = (5,)
     # # precentses = (5,)
-    # full_sols = (0.0,1.0)
-    # priotity = True
-    # random = False
-    # blocks_num = 100
-    # block_size = 20
+    full_sols = (0.0, 1.0)
+    priotity = True
+    random = False
+    blocks_num = 100
+    block_size = 20
     # # priority = get_pririty(blocks_num=blocks_num, block_size=block_size)
     # # profiler.enable()
     run_all_algos(algos=algos, precentses=precentses, full_sols=full_sols, blocks_num=blocks_num, block_size=block_size,
                   random=random, priority=priotity)
 
-    summurize_res(blocks_num=100, block_size=20, random=True)
+    # summurize_res(blocks_num=100, block_size=20, random=True)
+    analyze_priority(blocks_num=100, block_size=20, random=False)
     #summurize_res(blocks_num=100, block_size=20, random=False)
