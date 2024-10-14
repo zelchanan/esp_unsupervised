@@ -1,3 +1,5 @@
+import sys
+sys.path.append(".")
 import logging
 from typing import Set, Tuple, List, Optional
 import itertools
@@ -229,23 +231,33 @@ def count_collisions(collision_matrix: np.ndarray, paths_dist: np.ndarray) -> in
     return int(s @ collision_matrix @ s)
 
 
-if __name__ == "__main__":
-    set_log()
-    blocks_num = 100
-    block_size = 20
-    epsilon = 0.05
+def ilp():
+    blocks_num = 20
+    block_size = 10
+    epsilon = 0.2
     blocks = create_random_batch(blocks_num, block_size, epsilon, batch_size=10)
+    for ind, block in enumerate(blocks):
+        blocks[ind] = add_sol_to_data(block=block, blocks_num=blocks_num, block_size=block_size,
+                                               sol=True)
+
     cm = CollisionsMatrix(blocks[0], sizes=blocks_num * [block_size])
     num_of_vars = cm.total_size + cm.total_size * (cm.total_size - 1) // 2
     num_of_equations = cm.blocks_num + cm.total_size * (cm.total_size - 1)
     above_diagonal = np.array(
         [cm.collision_matrix[i, j] for i in range(cm.total_size) for j in range(i + 1, cm.total_size)])
     above_inds = [[i, j] for i in range(cm.total_size) for j in range(i + 1, cm.total_size)]
-
     integrality = np.ones(num_of_vars).astype(bool)
-    constaraints_matrix = np.zeros((num_of_equations, num_of_vars))
+    # constaraints_matrix = np.zeros((num_of_equations, num_of_vars))
+    rows = []
+    cols = []
+    vals = []
     for i in range(cm.blocks_num):
-        constaraints_matrix[i, cm.start_inds[i]:cm.end_inds[i] + 1] = 1
+        block_size = cm.sizes[i]
+
+        rows += [i] * block_size
+        cols += range(cm.start_inds[i], cm.end_inds[i] + 1)
+        vals += [1] * block_size
+        # constaraints_matrix[i, cm.start_inds[i]:cm.end_inds[i] + 1] = 1
     for k in range(cm.blocks_num, num_of_equations - 1, 2):
         c, r = above_inds[(k - cm.blocks_num) // 2]
         block_ind, inner_ind = cm.get_block_and_inner_ind(c)
@@ -253,26 +265,31 @@ if __name__ == "__main__":
         first_block_ind = cm.start_inds[block_ind] + inner_ind
         block_ind, inner_ind = cm.get_block_and_inner_ind(r)
         second_block_ind = cm.start_inds[block_ind] + inner_ind
-        constaraints_matrix[k, (k - cm.blocks_num) // 2 + cm.total_size] = 1
-        constaraints_matrix[k, first_block_ind] = -1
-        constaraints_matrix[k + 1, (k - cm.blocks_num) // 2 + cm.total_size] = 1
-        constaraints_matrix[k + 1, second_block_ind] = -1
+        collison_ind = (k - cm.blocks_num) // 2 + cm.total_size
+        rows += [k, k, k + 1, k + 1]
+        cols += [collison_ind, first_block_ind, collison_ind, second_block_ind]
+        vals += [1, -1, 1, -1]
+        # constaraints_matrix[k, (k - cm.blocks_num) // 2 + cm.total_size] = 1
+        # constaraints_matrix[k, first_block_ind] = -1
+        # constaraints_matrix[k + 1, (k - cm.blocks_num) // 2 + cm.total_size] = 1
+        # constaraints_matrix[k + 1, second_block_ind] = -1
+    constraints_matrix = bsr_array((vals, (rows, cols)), shape=(num_of_equations, num_of_vars))
     f, ax = plt.subplots()
-    ax.imshow(constaraints_matrix)
+    #ax.imshow(constraints_matrix.toarray())
     bounds = optimize.Bounds(0, 1)  # 0 <= x_i <= 1
     lb = np.zeros(num_of_equations)
     lb[:cm.blocks_num] = 1
     lb[cm.blocks_num:] = -np.inf
     ub = np.zeros(num_of_equations)
     ub[:cm.blocks_num] = 1
-    constraints = optimize.LinearConstraint(constaraints_matrix, lb=lb, ub=ub)
+    constraints = optimize.LinearConstraint(constraints_matrix, lb=lb, ub=ub)
     # c = cm.collision_matrix.flatten()
-    c = np.hstack([np.zeros(cm.total_size), above_diagonal])-1
-    res = milp(c=c, constraints=constraints, integrality=integrality, bounds=bounds)
+    c = np.hstack([np.zeros(cm.total_size), above_diagonal]) - 1
+    res = milp(c=c, constraints=constraints, integrality=integrality, bounds=bounds, options = {"disp":True})
     f, axes = plt.subplots(2, 2)
     selected_vars = res.x[:cm.total_size].reshape((cm.blocks_num, cm.total_size // cm.blocks_num))
-    axes[0,0].imshow(selected_vars)
-    axes[0,1].imshow(np.outer(selected_vars.flatten(), selected_vars.flatten()))
+    axes[0, 0].imshow(selected_vars)
+    axes[0, 1].imshow(np.outer(selected_vars.flatten(), selected_vars.flatten()))
     collision_vars = res.x[cm.total_size:]
     m = np.zeros((cm.total_size, cm.total_size))
     counter = 0
@@ -280,10 +297,15 @@ if __name__ == "__main__":
         for j in range(i + 1, cm.total_size):
             m[i, j] = collision_vars[counter]
             counter += 1
-    axes[1,0].imshow(m + m.T)
-    axes[1,1].imshow(cm.collision_matrix)
+    axes[1, 0].imshow(m + m.T)
+    axes[1, 1].imshow(cm.collision_matrix)
     logging.info(res.x)
     plt.pause(1000)
+
+
+if __name__ == "__main__":
+    set_log()
+    ilp()
 
 # create_lexical_matrix(blocks_num=blocks_num, block_size=block_size, epsilon=epsilon, sol=True, seed=1)
 # add_sol_to_data(blocks, blocks_num, block_size)

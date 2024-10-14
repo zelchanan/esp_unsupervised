@@ -140,12 +140,13 @@ def run_algo(algo: str, blocks: np.ndarray, blocks_num: int, block_size: int, pe
                 sol, time = algos_dict[algo](block=block, block_size=block_size, blocks_num=blocks_num)
             else:
                 sol, time = algos_dict[algo](block=block, block_size=block_size, blocks_num=blocks_num)
-            sols_list.append(sol)
+            sols_list.append(sol.sum())
+            logging.info(f"sol: {sol.sum()}")
             stats_list.append(extract_stat(block, sol))
             vals_list.append(sol.flatten() @ block @ sol.flatten())
             # logging.info(f"new priority size: {size},max: {max(vals_list)}, min: {min(vals_list)}")
-            if max(vals_list) > max_size:
-                max_size = max(vals_list)
+            if max(sols_list) > max_size:
+                max_size = max(sols_list)
                 logging.info(f"time: {(datetime.now() - t_start).total_seconds()}, new max size: {max_size}")
             times_list.append((datetime.now() - t0).total_seconds())
             if ((datetime.now() - t_start).total_seconds() > max_time) or (max_size == blocks_num):
@@ -401,19 +402,19 @@ if __name__ == "__main__":
     #
     algos = ("greedy", "direct_softmax", "simplex")
     # #algos = ("direct_softmax",)
-    precentses = (5, 10, 20, 30, 50)
+    precentses = (20,)
     # #precentses = (5,)
     # # precentses = (5,)
     full_sols = (0.0, 1.0)
-    priotity = True
-    random = False
-    blocks_num = 100
-    block_size = 20
+    priotity = False
+    random = True
+    blocks_num = 30
+    block_size = 10
     # # priority = get_pririty(blocks_num=blocks_num, block_size=block_size)
     # # profiler.enable()
     run_all_algos(algos=algos, precentses=precentses, full_sols=full_sols, blocks_num=blocks_num, block_size=block_size,
                   random=random, priority=priotity)
 
     # summurize_res(blocks_num=100, block_size=20, random=True)
-    analyze_priority(blocks_num=100, block_size=20, random=False)
+    #analyze_priority(blocks_num=100, block_size=20, random=False)
     #summurize_res(blocks_num=100, block_size=20, random=False)
